@@ -1,0 +1,36 @@
+# python-services/requirements.txt
+# Requirements for Python microservices (Python 3.13 compatible)
+
+# Core dependencies
+numpy==1.26.4
+scipy==1.11.4
+scikit-learn==1.4.0
+
+# Web Framework
+Flask==3.0.0
+flask-cors==4.0.0
+Werkzeug==3.0.1
+
+# Utilities
+requests==2.31.0
+python-dotenv==1.0.0
+
+# Image Processing (Python 3.13 compatible)
+opencv-python==4.9.0.80
+Pillow==10.2.0
+
+# Audio Processing (Python 3.13 compatible)
+librosa==0.10.1
+soundfile==0.12.1
+numba==0.59.0
+
+# Deep Learning Frameworks (optional for voice recognition)
+torch>=2.0.0
+speechbrain>=0.5.0
+
+# Traditional Audio Features (optional)
+python-speech-features>=0.6.1
+
+# InsightFace (install separately with specific commands)
+# Will be installed via pip install insightface --no-deps
+# Then install onnxruntime separately

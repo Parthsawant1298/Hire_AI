@@ -1,0 +1,12 @@
+{
+  "type": "call-end",
+  "call": {
+    "id": "test-call-123",
+    "transcript": "Interviewer: Hello! Thank you for joining us today. Can you tell me about yourself?\n\nCandidate: Hi! Thank you for having me. I'm a software developer with 3 years of experience in full-stack development. I've worked primarily with React, Node.js, and MongoDB. I'm passionate about building user-friendly applications and solving complex problems.\n\nInterviewer: Great! Can you describe a challenging project you've worked on?\n\nCandidate: Sure! I recently worked on an e-commerce platform where we had to handle high traffic during sales. I implemented caching strategies using Redis and optimized database queries which reduced response time by 40%. It was challenging but very rewarding.\n\nInterviewer: Excellent! How do you handle debugging in production?\n\nCandidate: I use a combination of logging, monitoring tools like Sentry, and error tracking. I also believe in writing comprehensive tests to catch issues early. When production issues occur, I first replicate them in a staging environment before applying fixes.\n\nInterviewer: What are your salary expectations?\n\nCandidate: Based on my experience and market research, I'm looking for something in the range of $80,000 to $90,000 annually, but I'm open to discussion based on the complete compensation package.\n\nInterviewer: Thank you! That concludes our interview. We'll get back to you soon.",
+    "duration": 420,
+    "metadata": {
+      "jobId": "test-job-id",
+      "userId": "test-user-id"
+    }
+  }
+}
