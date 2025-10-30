@@ -5,7 +5,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { Mic, MicOff, Phone, PhoneOff, AlertCircle, CheckCircle, Shield } from 'lucide-react';
-import Vapi from '@vapi-ai/web';
+import VapiSDK from '@vapi-ai/web';
+
+const Vapi = VapiSDK.default || VapiSDK;
 
 export default function VoiceInterviewPage() {
   const router = useRouter();
@@ -278,59 +280,25 @@ export default function VoiceInterviewPage() {
 
       console.log('Initializing VAPI client...');
       
-      // Initialize VAPI client directly
+      // Initialize VAPI client with correct configuration
       const client = new Vapi(publicKey);
-      setVapiClient(client);
-      setIsVapiReady(true);
-      vapiInitialized.current = true;
       
       // Setup event listeners
-      setupVAPIEventListeners(client);
+      client.on('speech-start', () => {
+        console.log('🎤 User started speaking');
+      });
       
-      console.log('VAPI client initialized successfully');
-      setLoading(false);
+      client.on('speech-end', () => {
+        console.log('🎤 User stopped speaking');
+      });
       
-    } catch (error) {
-      console.error('Failed to initialize VAPI:', error);
-      setError(`Failed to initialize interview system: ${error.message}`);
-      setLoading(false);
-    }
-  };
-
-  const setupVAPIEventListeners = (client) => {
-    try {
-      console.log('Setting up VAPI event listeners...');
-
-      // Call started
       client.on('call-start', () => {
         console.log('✅ Interview call started');
         setIsCallActive(true);
         setLoading(false);
         setError(null);
       });
-
-      // User speaking events (for console visibility)
-      client.on('speech-start', () => {
-        console.log('🎤 User started speaking');
-      });
-
-      client.on('speech-end', () => {
-        console.log('🎤 User stopped speaking');
-      });
-
-      // Live transcript updates (visible in console during interview)
-      client.on('message', (message) => {
-        console.log('📝 Live transcript update:', message);
-        
-        // Store ALL messages in both state and ref
-        // Use ref to avoid closure issues in call-end handler
-        if (message) {
-          messagesRef.current = [...messagesRef.current, message];
-          setTranscriptMessages(prev => [...prev, message]);
-        }
-      });
-
-      // ONLY event that matters - Manual End Call by User
+      
       client.on('call-end', async () => {
         console.log('🎯 User manually ended interview call');
         
@@ -382,8 +350,18 @@ export default function VoiceInterviewPage() {
           router.push(`/interview/${params.jobId}/completed`);
         }, 3000);
       });
-
-      // Error handling (real errors only)
+      
+      client.on('message', (message) => {
+        console.log('📝 Live transcript update:', message);
+        
+        // Store ALL messages in both state and ref
+        // Use ref to avoid closure issues in call-end handler
+        if (message) {
+          messagesRef.current = [...messagesRef.current, message];
+          setTranscriptMessages(prev => [...prev, message]);
+        }
+      });
+      
       client.on('error', (error) => {
         console.error('❌ VAPI Error:', error);
         
@@ -400,12 +378,17 @@ export default function VoiceInterviewPage() {
         setIsCallActive(false);
         setLoading(false);
       });
-
-      console.log('✅ VAPI event listeners setup complete');
+      
+      setVapiClient(client);
+      setIsVapiReady(true);
+      vapiInitialized.current = true;
+      
+      console.log('VAPI client initialized successfully');
+      setLoading(false);
       
     } catch (error) {
-      console.error('❌ Event listener setup error:', error);
-      setError('Failed to setup interview system');
+      console.error('Failed to initialize VAPI:', error);
+      setError(`Failed to initialize interview system: ${error.message}`);
       setLoading(false);
     }
   };

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import { requireHostAuth } from '@/middleware/host-auth';
 import { Application } from '@/models/job';
+import User from '@/models/user';
 
 export async function GET(request) {
   try {

@@ -35,7 +35,6 @@ export default function HostNavbar() {
       { name: "Dashboard", path: "/host/dashboard", icon: BarChart3 },
       { name: "My Jobs", path: "/host/jobs", icon: Briefcase },
       { name: "Candidates", path: "/host/candidates", icon: Users },
-      { name: "Create Job", path: "/host/create-job", icon: Plus },
     ];  // Handle scroll effect
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -170,14 +169,6 @@ export default function HostNavbar() {
                 <button className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors duration-200 flex items-center space-x-2">
                   <Briefcase size={18} />
                   <span>Post Job</span>
-                </button>
-              </Link>
-
-              {/* View Platform Button */}
-              <Link href="/jobs">
-                <button className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors duration-200 flex items-center space-x-2">
-                  <Eye size={18} />
-                  <span>View Platform</span>
                 </button>
               </Link>
 
@@ -399,16 +390,6 @@ export default function HostNavbar() {
                   >
                     <Briefcase size={18} className="mr-2" />
                     Post Job
-                  </Link>
-
-                  {/* View Platform Button - Mobile */}
-                  <Link 
-                    href="/jobs" 
-                    className="w-full bg-green-600 text-white px-4 py-3 rounded-lg text-center transition-all duration-300 font-medium flex items-center justify-center"
-                    onClick={() => setIsMobileMenuOpen(false)}
-                  >
-                    <Eye size={18} className="mr-2" />
-                    View Platform
                   </Link>
 
                   <Link 

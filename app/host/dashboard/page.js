@@ -35,7 +35,7 @@ export default function HostDashboardPage() {
       }
 
       // Fetch recent jobs
-      const jobsResponse = await fetch('/api/host/jobs?limit=5', {
+      const jobsResponse = await fetch('/api/host/jobs/list?limit=5', {
         credentials: 'include'
       });
 
@@ -105,28 +105,28 @@ export default function HostDashboardPage() {
             <MetricCard
               title="Total Jobs Posted"
               value={analytics?.totalJobs || 0}
-              change="+12%"
+              change={analytics?.totalJobs > 0 ? "+12%" : "No change"}
               icon={Briefcase}
               color="blue"
             />
             <MetricCard
               title="Total Applications"
               value={analytics?.totalApplications || 0}
-              change="+23%"
+              change={analytics?.totalApplications > 0 ? "+23%" : "No change"}
               icon={Users}
               color="green"
             />
             <MetricCard
               title="Interviews Completed"
               value={analytics?.completedInterviews || 0}
-              change="+8%"
+              change={analytics?.completedInterviews > 0 ? "+8%" : "No change"}
               icon={Clock}
               color="purple"
             />
             <MetricCard
               title="Successful Hires"
               value={analytics?.successfulHires || 0}
-              change="+15%"
+              change={analytics?.successfulHires > 0 ? "+15%" : "No change"}
               icon={Award}
               color="orange"
             />
