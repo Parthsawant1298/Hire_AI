@@ -62,28 +62,77 @@ export default function MainDashboard() {
   const router = useRouter();
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [dashboardData, setDashboardData] = useState({
+    stats: {
+      totalApplications: 0,
+      pendingInterviews: 0,
+      completedInterviews: 0,
+      acceptedOffers: 0
+    },
+    applications: []
+  });
 
   useEffect(() => {
-    checkAuth();
+    checkAuthAndLoadData();
   }, []);
 
-  const checkAuth = async () => {
+  const checkAuthAndLoadData = async () => {
     try {
-      const response = await fetch('/api/auth/user', {
+      // Check authentication
+      const authResponse = await fetch('/api/auth/user', {
         credentials: 'include'
       });
-      
-      if (!response.ok) {
-        throw new Error('Not authenticated');
+
+      if (!authResponse.ok) {
+        router.push('/login');
+        return;
       }
 
-      const data = await response.json();
-      setUser(data.user);
+      const authData = await authResponse.json();
+      setUser(authData.user);
+
+      // Load real dashboard data
+      await loadDashboardData();
     } catch (error) {
-      console.error('Authentication check failed:', error);
-      router.replace('/login');
+      console.error('Auth/Dashboard error:', error);
+      router.push('/login');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadDashboardData = async () => {
+    try {
+      console.log('Loading real dashboard data for main page...');
+      
+      const [applicationsRes, statsRes] = await Promise.all([
+        fetch('/api/user/applications?limit=5', { credentials: 'include' }),
+        fetch('/api/user/stats', { credentials: 'include' })
+      ]);
+
+      if (applicationsRes.ok) {
+        const applicationsData = await applicationsRes.json();
+        console.log('Real applications data:', applicationsData);
+        if (applicationsData.success) {
+          setDashboardData(prev => ({
+            ...prev,
+            applications: applicationsData.applications || []
+          }));
+        }
+      }
+
+      if (statsRes.ok) {
+        const statsData = await statsRes.json();
+        console.log('Real stats data:', statsData);
+        if (statsData.success) {
+          setDashboardData(prev => ({
+            ...prev,
+            stats: statsData.stats || prev.stats
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load real dashboard data:', error);
     }
   };
 
@@ -112,220 +161,251 @@ export default function MainDashboard() {
       {/* Main Content */}
       <main className="pt-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Debug Info - Remove after confirming real data */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+            <p className="text-sm text-blue-800">
+              <strong>Real Main Dashboard Data:</strong> 
+              Applications: {dashboardData.applications.length}, 
+              Total Apps: {dashboardData.stats.totalApplications}, 
+              Pending: {dashboardData.stats.pendingInterviews}, 
+              Completed: {dashboardData.stats.completedInterviews}, 
+              Offers: {dashboardData.stats.acceptedOffers}
+            </p>
+          </div>
           {/* Welcome Section */}
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-gray-900">
               Welcome back, {user.name?.split(' ')[0]}! 👋
             </h1>
             <p className="text-gray-600 mt-2">
-              Ready to continue your AI/ML journey? Here's what's happening today.
+              Ready to continue your job search journey? Here's your real dashboard with live data.
             </p>
+            <div className="mt-4">
+              <button
+                onClick={loadDashboardData}
+                className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors"
+              >
+                Refresh Data
+              </button>
+            </div>
           </div>
 
-          {/* Stats Cards */}
+          {/* Stats Cards - Now Real Data */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <DashboardCard
               icon={BookOpen}
-              title="Courses"
-              description="Available courses"
-              value="12"
+              title="Total Applications"
+              description="Jobs you've applied to"
+              value={dashboardData.stats.totalApplications}
               color="blue"
             />
             <DashboardCard
               icon={Calendar}
-              title="Events"
-              description="Upcoming events"
-              value="5"
+              title="Pending Interviews"
+              description="Awaiting interview"
+              value={dashboardData.stats.pendingInterviews}
               color="green"
             />
             <DashboardCard
               icon={Users}
-              title="Members"
-              description="Active members"
-              value="234"
+              title="Completed Interviews"
+              description="Interviews done"
+              value={dashboardData.stats.completedInterviews}
               color="purple"
             />
             <DashboardCard
               icon={Award}
-              title="Projects"
-              description="Completed projects"
-              value="18"
+              title="Accepted Offers"
+              description="Job offers received"
+              value={dashboardData.stats.acceptedOffers}
               color="orange"
             />
           </div>
 
-          {/* Quick Actions */}
+          {/* Quick Actions - Updated Navigation */}
           <div className="mb-8">
             <h2 className="text-2xl font-bold text-gray-900 mb-6">Quick Actions</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <QuickActionCard
                 icon={BookOpen}
-                title="Browse Courses"
-                description="Explore AI/ML courses and tutorials"
-                href="/courses"
+                title="Job Search"
+                description="Find your dream job"
+                href="/job-search"
                 color="blue"
               />
               <QuickActionCard
-                icon={Calendar}
-                title="Join Events"
-                description="Register for upcoming workshops"
-                href="/events"
+                icon={Brain}
+                title="Courses AI"
+                description="AI-powered learning courses"
+                href="/course-ai"
                 color="green"
               />
               <QuickActionCard
-                icon={Brain}
-                title="Start Project"
-                description="Begin a new AI/ML project"
-                href="/projects"
+                icon={Calendar}
+                title="ARVR Interview"
+                description="Virtual reality interviews"
+                href="/arvr-interview"
                 color="purple"
+              />
+              <QuickActionCard
+                icon={Users}
+                title="Interview"
+                description="Practice interviews"
+                href="/interview"
+                color="orange"
+              />
+              <QuickActionCard
+                icon={TrendingUp}
+                title="Browse Jobs"
+                description="Explore available positions"
+                href="/jobs"
+                color="blue"
+              />
+              <QuickActionCard
+                icon={Award}
+                title="Profile"
+                description="Update your profile"
+                href="/profile"
+                color="green"
               />
             </div>
           </div>
 
-          {/* Recent Activity */}
+          {/* Recent Activity - Real Data */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Recent Courses */}
+            {/* Recent Applications */}
             <div className="bg-white rounded-lg shadow p-6">
               <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
                 <BookOpen className="h-5 w-5 text-blue-600 mr-2" />
-                Recent Courses
+                Recent Applications ({dashboardData.applications.length})
               </h3>
               <div className="space-y-4">
-                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-900">Introduction to Machine Learning</h4>
-                    <p className="text-xs text-gray-500">Progress: 75%</p>
+                {dashboardData.applications.length > 0 ? dashboardData.applications.map((app) => (
+                  <div key={app._id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex-1">
+                      <h4 className="text-sm font-medium text-gray-900">{app.jobId?.jobTitle || 'Unknown Job'}</h4>
+                      <p className="text-xs text-gray-500">{app.jobId?.companyName || 'Unknown Company'}</p>
+                      <p className="text-xs text-gray-500">{new Date(app.createdAt).toLocaleDateString()}</p>
+                    </div>
+                    <div className="text-right">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        app.status === 'applied' ? 'bg-blue-100 text-blue-800' :
+                        app.status === 'shortlisted' ? 'bg-green-100 text-green-800' :
+                        app.status === 'selected' ? 'bg-purple-100 text-purple-800' :
+                        app.status === 'rejected' ? 'bg-red-100 text-red-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {app.status}
+                      </span>
+                    </div>
                   </div>
-                  <div className="w-16 bg-gray-200 rounded-full h-2">
-                    <div className="bg-blue-600 h-2 rounded-full" style={{width: '75%'}}></div>
+                )) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <BookOpen className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                    <p>No applications yet</p>
+                    <p className="text-sm">Start applying to jobs to see them here</p>
                   </div>
-                </div>
-                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-900">Deep Learning Fundamentals</h4>
-                    <p className="text-xs text-gray-500">Progress: 45%</p>
-                  </div>
-                  <div className="w-16 bg-gray-200 rounded-full h-2">
-                    <div className="bg-blue-600 h-2 rounded-full" style={{width: '45%'}}></div>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-900">Python for Data Science</h4>
-                    <p className="text-xs text-gray-500">Progress: 90%</p>
-                  </div>
-                  <div className="w-16 bg-gray-200 rounded-full h-2">
-                    <div className="bg-blue-600 h-2 rounded-full" style={{width: '90%'}}></div>
-                  </div>
-                </div>
+                )}
               </div>
               <a 
-                href="/courses" 
+                href="/profile" 
                 className="inline-block mt-4 text-blue-600 hover:text-blue-700 text-sm font-medium"
               >
-                View all courses →
+                View all applications →
               </a>
             </div>
 
-            {/* Upcoming Events */}
+            {/* Interview Status */}
             <div className="bg-white rounded-lg shadow p-6">
               <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
                 <Calendar className="h-5 w-5 text-green-600 mr-2" />
-                Upcoming Events
+                Interview Status
               </h3>
               <div className="space-y-4">
-                <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
-                  <div className="bg-green-100 text-green-600 rounded-lg p-2 text-xs font-bold">
-                    <div>MAR</div>
-                    <div>25</div>
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900">Pending Interviews</h4>
+                    <p className="text-xs text-gray-500">Awaiting your response</p>
                   </div>
-                  <div className="flex-1">
-                    <h4 className="text-sm font-medium text-gray-900">AI Workshop: Neural Networks</h4>
-                    <p className="text-xs text-gray-500">2:00 PM - 4:00 PM</p>
-                    <p className="text-xs text-gray-500">Room 301, CS Building</p>
+                  <div className="text-2xl font-bold text-orange-600">
+                    {dashboardData.stats.pendingInterviews}
                   </div>
                 </div>
-                <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
-                  <div className="bg-green-100 text-green-600 rounded-lg p-2 text-xs font-bold">
-                    <div>MAR</div>
-                    <div>28</div>
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900">Completed Interviews</h4>
+                    <p className="text-xs text-gray-500">Successfully finished</p>
                   </div>
-                  <div className="flex-1">
-                    <h4 className="text-sm font-medium text-gray-900">Guest Lecture: Industry Insights</h4>
-                    <p className="text-xs text-gray-500">10:00 AM - 12:00 PM</p>
-                    <p className="text-xs text-gray-500">Auditorium A</p>
+                  <div className="text-2xl font-bold text-green-600">
+                    {dashboardData.stats.completedInterviews}
                   </div>
                 </div>
-                <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
-                  <div className="bg-green-100 text-green-600 rounded-lg p-2 text-xs font-bold">
-                    <div>APR</div>
-                    <div>02</div>
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900">Accepted Offers</h4>
+                    <p className="text-xs text-gray-500">Job offers received</p>
                   </div>
-                  <div className="flex-1">
-                    <h4 className="text-sm font-medium text-gray-900">Hackathon 2024</h4>
-                    <p className="text-xs text-gray-500">9:00 AM - 6:00 PM</p>
-                    <p className="text-xs text-gray-500">Innovation Lab</p>
+                  <div className="text-2xl font-bold text-purple-600">
+                    {dashboardData.stats.acceptedOffers}
                   </div>
                 </div>
               </div>
               <a 
-                href="/events" 
+                href="/interview" 
                 className="inline-block mt-4 text-green-600 hover:text-green-700 text-sm font-medium"
               >
-                View all events →
+                Manage interviews →
               </a>
             </div>
           </div>
 
-          {/* Performance Overview */}
+          {/* Application Summary - Real Data */}
           <div className="mt-8 bg-white rounded-lg shadow p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
               <TrendingUp className="h-5 w-5 text-purple-600 mr-2" />
-              Your Learning Progress
+              Your Application Summary
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
               <div className="text-center">
-                <div className="text-3xl font-bold text-gray-900">8</div>
-                <div className="text-sm text-gray-500">Courses Completed</div>
+                <div className="text-3xl font-bold text-gray-900">{dashboardData.stats.totalApplications}</div>
+                <div className="text-sm text-gray-500">Total Applications</div>
               </div>
               <div className="text-center">
-                <div className="text-3xl font-bold text-gray-900">24</div>
-                <div className="text-sm text-gray-500">Hours Learned</div>
+                <div className="text-3xl font-bold text-orange-600">{dashboardData.stats.pendingInterviews}</div>
+                <div className="text-sm text-gray-500">Pending Interviews</div>
               </div>
               <div className="text-center">
-                <div className="text-3xl font-bold text-gray-900">12</div>
-                <div className="text-sm text-gray-500">Certificates Earned</div>
+                <div className="text-3xl font-bold text-green-600">{dashboardData.stats.completedInterviews}</div>
+                <div className="text-sm text-gray-500">Completed Interviews</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-purple-600">{dashboardData.stats.acceptedOffers}</div>
+                <div className="text-sm text-gray-500">Accepted Offers</div>
               </div>
             </div>
           </div>
 
-          {/* Latest Announcements */}
+          {/* Job Search Tips */}
           <div className="mt-8 bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Latest Announcements</h3>
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Job Search Tips</h3>
             <div className="space-y-4">
               <div className="border-l-4 border-blue-500 pl-4">
-                <h4 className="text-sm font-medium text-gray-900">New Course Available: Computer Vision</h4>
+                <h4 className="text-sm font-medium text-gray-900">Complete Your Profile</h4>
                 <p className="text-sm text-gray-600 mt-1">
-                  We're excited to announce our new Computer Vision course is now available. 
-                  Learn about image processing, object detection, and more!
+                  A complete profile with resume and skills increases your chances of getting noticed by employers.
                 </p>
-                <p className="text-xs text-gray-500 mt-1">Posted 2 days ago</p>
               </div>
               <div className="border-l-4 border-green-500 pl-4">
-                <h4 className="text-sm font-medium text-gray-900">Registration Open: AI Ethics Workshop</h4>
+                <h4 className="text-sm font-medium text-gray-900">Apply Regularly</h4>
                 <p className="text-sm text-gray-600 mt-1">
-                  Join us for an important discussion on AI ethics and responsible AI development. 
-                  Limited seats available.
+                  Don't wait for the perfect job. Apply to multiple positions that match your skills and interests.
                 </p>
-                <p className="text-xs text-gray-500 mt-1">Posted 5 days ago</p>
               </div>
               <div className="border-l-4 border-purple-500 pl-4">
-                <h4 className="text-sm font-medium text-gray-900">Club Meeting: March Schedule</h4>
+                <h4 className="text-sm font-medium text-gray-900">Prepare for Interviews</h4>
                 <p className="text-sm text-gray-600 mt-1">
-                  Our monthly club meeting is scheduled for March 30th. 
-                  We'll discuss upcoming projects and events.
+                  Use our AI-powered interview preparation tools to practice and improve your interview skills.
                 </p>
-                <p className="text-xs text-gray-500 mt-1">Posted 1 week ago</p>
               </div>
             </div>
           </div>

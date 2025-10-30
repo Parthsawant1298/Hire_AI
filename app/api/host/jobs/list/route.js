@@ -16,6 +16,8 @@ export async function GET(request) {
     const limit = parseInt(searchParams.get('limit')) || 10;
     const status = searchParams.get('status');
 
+    console.log('Jobs List API: Host ID:', host._id, 'Host name:', host.name);
+
     await connectDB();
 
     // Build query - exclude cancelled jobs by default unless specifically requested
@@ -28,6 +30,8 @@ export async function GET(request) {
     }
     // If status === 'all', don't add any status filter
 
+    console.log('Jobs List API: Query:', JSON.stringify(query));
+
     // Get jobs with pagination
     const jobs = await Job.find(query)
       .select('-interviewQuestions') // Exclude questions for list view
@@ -35,6 +39,9 @@ export async function GET(request) {
       .limit(limit)
       .skip((page - 1) * limit)
       .populate('shortlistedCandidates finalSelectedCandidates', 'userId atsScore finalScore status');
+
+    console.log('Jobs List API: Found jobs count:', jobs.length);
+    jobs.forEach(job => console.log('  - Job:', job._id, job.jobTitle));
 
     // Calculate actual completed interviews for each job from applications
     const Application = (await import('@/models/job')).Application;
@@ -65,6 +72,12 @@ export async function GET(request) {
         totalJobs,
         hasNext: page < Math.ceil(totalJobs / limit),
         hasPrev: page > 1
+      }
+    }, {
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
       }
     });
 

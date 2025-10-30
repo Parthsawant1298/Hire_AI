@@ -17,6 +17,8 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const period = searchParams.get('period') || '30d';
 
+    console.log('Analytics API: Host ID:', host._id, 'Period:', period);
+
     await connectDB();
 
     // Calculate date range
@@ -37,13 +39,23 @@ export async function GET(request) {
         startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     }
 
-    // Get jobs in period
-    const jobs = await Job.find({
+    // Get ALL current jobs for the host (not just in period)
+    const allJobs = await Job.find({
+      hostId: host._id,
+      status: { $ne: 'cancelled' } // Exclude cancelled jobs
+    });
+
+    console.log('Analytics API: Total current jobs for host:', allJobs.length);
+
+    // Get jobs created in the period for period-specific metrics
+    const jobsInPeriod = await Job.find({
       hostId: host._id,
       createdAt: { $gte: startDate }
     });
 
-    const jobIds = jobs.map(job => job._id);
+    console.log('Analytics API: Jobs created in period:', jobsInPeriod.length);
+
+    const jobIds = jobsInPeriod.map(job => job._id);
 
     // Get applications
     const applications = await Application.find({
@@ -52,7 +64,7 @@ export async function GET(request) {
     });
 
     // Calculate metrics
-    const totalJobs = jobs.length;
+    const totalJobs = allJobs.length; // Total current jobs
     const totalApplications = applications.length;
     const completedInterviews = applications.filter(app => app.voiceInterviewCompleted).length;
     const successfulHires = applications.filter(app => app.status === 'selected').length;
@@ -120,6 +132,12 @@ export async function GET(request) {
         successfulHires,
         topJobs: jobPerformance,
         period
+      }
+    }, {
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
       }
     });
 

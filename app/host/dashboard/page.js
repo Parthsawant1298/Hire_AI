@@ -14,17 +14,36 @@ export default function HostDashboardPage() {
   const [selectedPeriod, setSelectedPeriod] = useState('30d');
   const [recentJobs, setRecentJobs] = useState([]);
   const [recentApplications, setRecentApplications] = useState([]);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
+    // Force fresh data load on mount
     fetchDashboardData();
+    
+    // Optional: Set up periodic refresh every 30 seconds
+    const interval = setInterval(() => {
+      fetchDashboardData();
+    }, 30000);
+    
+    return () => clearInterval(interval);
   }, [selectedPeriod]);
 
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
+      // Clear any cached data first
+      setRecentJobs([]);
+      setRecentApplications([]);
+      setAnalytics(null);
+
+      // Add timestamp to prevent any caching
+      const timestamp = Date.now();
       // Fetch analytics data
-      const analyticsResponse = await fetch(`/api/host/jobs/analytics?period=${selectedPeriod}`, {
-        credentials: 'include'
+      const analyticsResponse = await fetch(`/api/host/jobs/analytics?period=${selectedPeriod}&_t=${Date.now()}`, {
+        credentials: 'include',
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
       });
 
       if (analyticsResponse.ok) {
@@ -35,20 +54,27 @@ export default function HostDashboardPage() {
       }
 
       // Fetch recent jobs
-      const jobsResponse = await fetch('/api/host/jobs/list?limit=5', {
-        credentials: 'include'
+      const jobsResponse = await fetch(`/api/host/jobs/list?limit=5&_t=${Date.now()}`, {
+        credentials: 'include',
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
       });
 
       if (jobsResponse.ok) {
         const jobsData = await jobsResponse.json();
         if (jobsData.success) {
+          console.log('Dashboard: Fetched jobs:', jobsData.jobs.length, jobsData.jobs.map(j => ({ id: j._id, title: j.jobTitle })));
           setRecentJobs(jobsData.jobs);
         }
       }
 
       // Fetch recent applications
-      const applicationsResponse = await fetch('/api/host/jobs/applications/recent?limit=5', {
-        credentials: 'include'
+      const applicationsResponse = await fetch(`/api/host/jobs/applications/recent?limit=5&_t=${Date.now()}`, {
+        credentials: 'include',
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
       });
 
       if (applicationsResponse.ok) {
@@ -77,10 +103,21 @@ export default function HostDashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div key={refreshKey} className="min-h-screen bg-gray-50">
       <Navbar />
 
       <div className="pt-16">
+        {/* Debug Info - Remove this after fixing */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+            <p className="text-sm text-yellow-800">
+              <strong>Debug Info:</strong> Jobs: {recentJobs.length}, Applications: {recentApplications.length}, 
+              Analytics: {analytics ? `Total Jobs: ${analytics.totalJobs}, Apps: ${analytics.totalApplications}` : 'Not loaded'}, 
+              Last refresh: {new Date().toLocaleTimeString()}
+            </p>
+          </div>
+        </div>
+
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {/* Header */}
           <div className="flex justify-between items-center mb-8">
@@ -88,16 +125,27 @@ export default function HostDashboardPage() {
               <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
               <p className="text-gray-600">Welcome back! Here's your recruitment overview</p>
             </div>
-            <select
-              value={selectedPeriod}
-              onChange={(e) => setSelectedPeriod(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="7d">Last 7 days</option>
-              <option value="30d">Last 30 days</option>
-              <option value="90d">Last 90 days</option>
-              <option value="1y">Last year</option>
-            </select>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => {
+                  setRefreshKey(prev => prev + 1);
+                  fetchDashboardData();
+                }}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Refresh Data
+              </button>
+              <select
+                value={selectedPeriod}
+                onChange={(e) => setSelectedPeriod(e.target.value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="7d">Last 7 days</option>
+                <option value="30d">Last 30 days</option>
+                <option value="90d">Last 90 days</option>
+                <option value="1y">Last year</option>
+              </select>
+            </div>
           </div>
 
           {/* Key Metrics */}
@@ -137,7 +185,7 @@ export default function HostDashboardPage() {
             {/* Recent Jobs */}
             <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">Recent Jobs</h3>
+                <h3 className="text-lg font-semibold text-gray-900">Recent Jobs ({recentJobs.length})</h3>
                 <a href="/host/jobs" className="text-blue-600 hover:text-blue-700 text-sm font-medium">
                   View All →
                 </a>
