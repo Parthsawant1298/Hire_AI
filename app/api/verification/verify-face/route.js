@@ -8,15 +8,36 @@ export async function POST(request) {
   try {
     await connectDB();
     
-    // Get form data with the test image
-    const formData = await request.formData();
-    const testImageFile = formData.get('testImage');
-    
-    if (!testImageFile) {
-      return NextResponse.json(
-        { error: 'Test image is required' },
-        { status: 400 }
-      );
+    // Handle both form data and JSON data for real-time checks
+    let testImageBase64 = null;
+    const contentType = request.headers.get('content-type');
+
+    if (contentType?.includes('application/json')) {
+      // Real-time check with base64 data
+      const body = await request.json();
+      testImageBase64 = body.testImageBase64;
+
+      if (!testImageBase64) {
+        return NextResponse.json(
+          { error: 'Test image base64 is required' },
+          { status: 400 }
+        );
+      }
+    } else {
+      // Regular form upload
+      const formData = await request.formData();
+      const testImageFile = formData.get('testImage');
+
+      if (!testImageFile) {
+        return NextResponse.json(
+          { error: 'Test image is required' },
+          { status: 400 }
+        );
+      }
+
+      // Convert test image to base64
+      const testImageBuffer = await testImageFile.arrayBuffer();
+      testImageBase64 = `data:${testImageFile.type};base64,${Buffer.from(testImageBuffer).toString('base64')}`;
     }
 
     // Authenticate user
@@ -65,10 +86,6 @@ export async function POST(request) {
       );
     }
 
-    // Convert test image to base64
-    const testImageBuffer = await testImageFile.arrayBuffer();
-    const testImageBase64 = `data:${testImageFile.type};base64,${Buffer.from(testImageBuffer).toString('base64')}`;
-
     // Call Python face verification service (Flask on port 8002)
     const comparisonResult = await callFlaskFaceService(
       storedImageUrl, 
@@ -81,7 +98,10 @@ export async function POST(request) {
       similarity: comparisonResult.similarity,
       confidence: comparisonResult.confidence,
       result: comparisonResult.result,
-      details: comparisonResult.details
+      details: comparisonResult.details,
+      bbox: comparisonResult.bbox,
+      face2_bbox: comparisonResult.bbox, // Alias for compatibility
+      model_used: comparisonResult.model_used
     });
 
   } catch (error) {

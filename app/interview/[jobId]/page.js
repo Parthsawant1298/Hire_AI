@@ -33,10 +33,26 @@ export default function VoiceInterviewPage() {
   const [aiVideoLoaded, setAiVideoLoaded] = useState(false);
   const [currentSpeaker, setCurrentSpeaker] = useState(null); // 'assistant' or 'user'
   const [partialTranscript, setPartialTranscript] = useState('');
+
+  // Real-time Proctoring States
+  const [proctorData, setProctorData] = useState({
+    faceVerified: null,
+    voiceVerified: null,
+    userName: null,
+    boundingBox: null,
+    violations: []
+  });
+  const [proctorEnabled, setProctorEnabled] = useState(false);
+
   const vapiInitialized = useRef(false);
   const messagesRef = useRef([]); // Use ref to avoid closure issues in event handlers
   const transcriptEndRef = useRef(null);
   const aiVideoRef = useRef(null);
+  const proctorIntervalRef = useRef(null);
+  const canvasRef = useRef(null);
+  const lastVoiceCheckRef = useRef(0);
+  const audioRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
   // Get assistant ID from URL params or job data
   const urlAssistantId = searchParams.get('assistant');
   const [finalAssistantId, setFinalAssistantId] = useState(null);
@@ -63,23 +79,330 @@ export default function VoiceInterviewPage() {
 
   // Control AI video playback based on call state and speaker
   useEffect(() => {
+    console.log('🎬 Video control triggered:', {
+      currentSpeaker,
+      isCallActive,
+      aiVideoLoaded
+    });
+
     if (aiVideoRef.current && aiVideoLoaded) {
       if (isCallActive) {
-        // Play video when AI is speaking, pause when user speaks
+        // CORRECT LOGIC:
+        // - When AI agent speaks (assistant) = PLAY video ✅
+        // - When user speaks = PAUSE video ✅
         if (currentSpeaker === 'assistant' || currentSpeaker === null) {
+          console.log('🎬 AI AGENT SPEAKING → PLAYING AI VIDEO');
           aiVideoRef.current.play().catch(e => console.log('Video autoplay handled:', e));
         } else if (currentSpeaker === 'user') {
+          console.log('🎤 USER SPEAKING → PAUSING AI VIDEO');
           aiVideoRef.current.pause();
         }
       } else if (isCallEnded) {
         // Pause video when interview ends
+        console.log('📞 Interview ended → PAUSING AI VIDEO');
         aiVideoRef.current.pause();
       } else {
         // Keep playing before interview starts
+        console.log('⏳ Before interview → PLAYING AI VIDEO');
         aiVideoRef.current.play().catch(e => console.log('Video autoplay handled:', e));
       }
     }
   }, [isCallActive, isCallEnded, aiVideoLoaded, currentSpeaker]);
+
+  // Real-time face verification
+  const performRealTimeFaceCheck = async (videoElement) => {
+    try {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+
+      canvas.width = videoElement.videoWidth;
+      canvas.height = videoElement.videoHeight;
+      ctx.drawImage(videoElement, 0, 0);
+
+      // Convert to blob and then to base64
+      return new Promise((resolve) => {
+        canvas.toBlob(async (blob) => {
+          const reader = new FileReader();
+          reader.onload = async () => {
+            const base64Image = reader.result;
+
+            try {
+              // Create FormData to match existing API
+              const formData = new FormData();
+
+              // Convert base64 to blob
+              const response_blob = await fetch(base64Image);
+              const imageBlob = await response_blob.blob();
+              formData.append('testImage', imageBlob, 'realtime-face.jpg');
+
+              console.log('🔍 Making real Flask face verification call...');
+
+              const response = await fetch('/api/verification/verify-face', {
+                method: 'POST',
+                credentials: 'include',
+                body: formData // Use FormData instead of JSON
+              });
+
+              console.log('🔍 Face API response status:', response.status);
+
+              if (!response.ok) {
+                console.error('🔍 Face API failed:', response.status, response.statusText);
+                const errorText = await response.text();
+                console.error('🔍 Error details:', errorText);
+                throw new Error(`Face verification API failed: ${response.status}`);
+              }
+
+              const result = await response.json();
+              console.log('🔍 Real-time face check FULL RESULT:', JSON.stringify(result, null, 2));
+              console.log('🔍 ALL FIELDS IN RESULT:', Object.keys(result));
+              console.log('🔍 Bounding box from API:', {
+                bbox: result.bbox,
+                face2_bbox: result.face2_bbox,
+                boundingBox: result.boundingBox,
+                face_bbox: result.face_bbox,
+                face1_bbox: result.face1_bbox,
+                box: result.box,
+                coordinates: result.coordinates,
+                hasBbox: !!(result.bbox || result.face2_bbox || result.boundingBox || result.face_bbox || result.face1_bbox)
+              });
+
+              // Verify this is actually from Flask
+              if (!result.success) {
+                console.error('🔍 Face verification failed:', result.error);
+                throw new Error(result.error || 'Face verification failed');
+              }
+
+              // IMPORTANT: Check if this is actually returning Flask data
+              if (!result.model_used || !result.model_used.includes('InsightFace')) {
+                console.warn('⚠️ Response does NOT appear to be from Flask InsightFace service!');
+                console.warn('⚠️ Make sure Flask service is running: python python-services/face_service.py');
+              }
+
+              setProctorData(prev => {
+                // Check if we got real Flask data
+                if (!result.bbox && !result.face2_bbox && !result.boundingBox) {
+                  console.warn('🔍 No bounding box data from Flask - service might be down!');
+                }
+
+                const boundingBox = result.bbox || result.face2_bbox || result.boundingBox || result.face_bbox || result.face1_bbox || null;
+
+                console.log('📦 Setting bounding box in proctorData:', boundingBox);
+                console.log('📦 Bounding box type:', typeof boundingBox, Array.isArray(boundingBox));
+                
+                if (!boundingBox) {
+                  console.error('❌ NO BOUNDING BOX IN RESPONSE! Check Flask service.');
+                  console.error('❌ Available fields:', Object.keys(result));
+                }
+
+                const newData = {
+                  ...prev,
+                  faceVerified: result.verified,
+                  boundingBox: boundingBox,
+                  userName: result.verified ? user?.name : null,
+                  lastFlaskCall: new Date().toISOString(), // Track when we called Flask
+                  flaskResponse: { // Store Flask response for debugging
+                    similarity: result.similarity,
+                    confidence: result.confidence,
+                    model_used: result.model_used
+                  }
+                };
+
+                console.log('🔍 Updated proctor data with Flask response:', {
+                  verified: newData.faceVerified,
+                  boundingBox: newData.boundingBox,
+                  userName: newData.userName,
+                  similarity: result.similarity,
+                  confidence: result.confidence,
+                  model_used: result.model_used,
+                  flaskWorking: !!boundingBox
+                });
+
+                // Track violations
+                if (!result.verified && prev.faceVerified !== false) {
+                  newData.violations = [...prev.violations, {
+                    type: 'FACE_MISMATCH',
+                    timestamp: new Date().toISOString(),
+                    message: 'Different person detected'
+                  }];
+                }
+
+                return newData;
+              });
+
+              resolve(result);
+            } catch (error) {
+              console.error('Real-time face check error:', error);
+              resolve({ verified: false, error: error.message });
+            }
+          };
+          reader.readAsDataURL(blob);
+        }, 'image/jpeg', 0.8);
+      });
+    } catch (error) {
+      console.error('Face capture error:', error);
+      return { verified: false, error: error.message };
+    }
+  };
+
+  // Real-time voice verification during speech
+  const performRealTimeVoiceCheck = async (audioData) => {
+    try {
+      const formData = new FormData();
+      formData.append('testAudio', audioData, 'realtime-voice.wav');
+      formData.append('textRead', 'Real-time verification');
+
+      console.log('🎵 Making real Flask voice verification call...');
+
+      const response = await fetch('/api/verification/verify-voice', {
+        method: 'POST',
+        credentials: 'include',
+        body: formData
+      });
+
+      console.log('🎵 Voice API response status:', response.status);
+
+      if (!response.ok) {
+        console.error('🎵 Voice API failed:', response.status, response.statusText);
+        const errorText = await response.text();
+        console.error('🎵 Error details:', errorText);
+        throw new Error(`Voice verification API failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('🎵 Real-time voice check FULL RESULT:', result);
+
+      // Verify this is actually from Flask
+      if (!result.success) {
+        console.error('🎵 Voice verification failed:', result.error);
+        throw new Error(result.error || 'Voice verification failed');
+      }
+
+      setProctorData(prev => {
+        const newData = {
+          ...prev,
+          voiceVerified: result.verified
+        };
+
+        // Track voice violations
+        if (!result.verified && prev.voiceVerified !== false) {
+          newData.violations = [...prev.violations, {
+            type: 'VOICE_MISMATCH',
+            timestamp: new Date().toISOString(),
+            message: 'Different voice detected'
+          }];
+        }
+
+        return newData;
+      });
+
+      return result;
+    } catch (error) {
+      console.error('Real-time voice check error:', error);
+      return { verified: false, error: error.message };
+    }
+  };
+
+  // Check if Flask services are running
+  const checkFlaskServices = async () => {
+    console.log('🔍 Checking Flask services...');
+
+    try {
+      // Check face service (port 8001)
+      const faceCheck = await fetch('http://localhost:8001/health', {
+        method: 'GET',
+        timeout: 5000
+      }).catch(() => null);
+
+      // Check voice service (port 8003)
+      const voiceCheck = await fetch('http://localhost:8003/health', {
+        method: 'GET',
+        timeout: 5000
+      }).catch(() => null);
+
+      console.log('🔍 Flask services status:', {
+        faceService: faceCheck ? 'RUNNING' : 'DOWN',
+        voiceService: voiceCheck ? 'RUNNING' : 'DOWN'
+      });
+
+      if (!faceCheck || !voiceCheck) {
+        console.warn('⚠️ Some Flask services are down! Real verification may not work.');
+        console.warn('⚠️ Make sure to run:');
+        console.warn('⚠️ python python-services/face_service.py (port 8001)');
+        console.warn('⚠️ python python-services/voice_service.py (port 8003)');
+      }
+
+      return { faceService: !!faceCheck, voiceService: !!voiceCheck };
+    } catch (error) {
+      console.error('🔍 Flask service check failed:', error);
+      return { faceService: false, voiceService: false };
+    }
+  };
+
+  // Start real-time proctoring
+  const startProctoring = async () => {
+    if (proctorIntervalRef.current) return;
+
+    console.log('🔍 Starting real-time proctoring...');
+
+    // Check if Flask services are running
+    await checkFlaskServices();
+
+    setProctorEnabled(true);
+
+    // Face verification every 3 seconds
+    proctorIntervalRef.current = setInterval(async () => {
+      if (!isCallActive) return;
+
+      const userVideo = document.querySelector('video[autoplay]:not([src])'); // User webcam
+      console.log('🔍 Proctoring interval running...', {
+        hasVideo: !!userVideo,
+        videoWidth: userVideo?.videoWidth,
+        videoReady: userVideo?.videoWidth > 0
+      });
+      
+      if (userVideo && userVideo.videoWidth > 0) {
+        console.log('📸 Calling performRealTimeFaceCheck...');
+        await performRealTimeFaceCheck(userVideo);
+      }
+    }, 3000);
+
+    // Voice verification during speech (triggered by VAPI events)
+    // This will be called from speech events
+  };
+
+  // Stop proctoring
+  const stopProctoring = () => {
+    console.log('🔍 Stopping real-time proctoring...');
+    if (proctorIntervalRef.current) {
+      clearInterval(proctorIntervalRef.current);
+      proctorIntervalRef.current = null;
+    }
+    setProctorEnabled(false);
+  };
+
+  // Auto-start proctoring when interview begins
+  useEffect(() => {
+    if (isCallActive && !proctorEnabled) {
+      startProctoring();
+    } else if (!isCallActive && proctorEnabled) {
+      stopProctoring();
+    }
+
+    return () => {
+      if (proctorIntervalRef.current) {
+        clearInterval(proctorIntervalRef.current);
+      }
+      // Clean up audio recorder
+      if (audioRecorderRef.current) {
+        if (audioRecorderRef.current.state === 'recording') {
+          audioRecorderRef.current.stop();
+        }
+        if (audioRecorderRef.current.stream) {
+          audioRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+        }
+      }
+    };
+  }, [isCallActive]);
 
   const checkVerificationStatus = async () => {
     try {
@@ -316,14 +639,48 @@ export default function VoiceInterviewPage() {
       const client = new Vapi(publicKey);
       
       // Setup event listeners
-      client.on('speech-start', () => {
-        console.log('🎤 User started speaking');
-        setCurrentSpeaker('user');
+      client.on('speech-start', async () => {
+        console.log('🤖 AI ASSISTANT started speaking - AI video should PLAY');
+        setCurrentSpeaker('assistant'); // AI is speaking = PLAY video
       });
 
-      client.on('speech-end', () => {
-        console.log('🎤 User stopped speaking');
-        setCurrentSpeaker('assistant');
+      client.on('speech-end', async () => {
+        console.log('🎤 AI ASSISTANT stopped speaking - User will speak - AI video should PAUSE');
+        setCurrentSpeaker('user'); // User will speak = PAUSE video
+      });
+
+      // Detect user speech from transcript messages for voice verification
+      let isRecording = false;
+      client.on('transcript', async (transcript) => {
+        if (transcript && transcript.role === 'user' && !isRecording) {
+          console.log('🎤 USER is speaking - Starting voice recording for verification');
+          isRecording = true;
+
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const recorder = new MediaRecorder(stream);
+            const chunks = [];
+
+            recorder.ondataavailable = (event) => chunks.push(event.data);
+            recorder.onstop = async () => {
+              const audioBlob = new Blob(chunks, { type: 'audio/wav' });
+              console.log('🎵 User audio captured, size:', audioBlob.size);
+              
+              if (audioBlob.size > 1000) {
+                await performRealTimeVoiceCheck(audioBlob);
+              }
+              
+              stream.getTracks().forEach(track => track.stop());
+              isRecording = false;
+            };
+
+            recorder.start();
+            setTimeout(() => recorder.stop(), 3000); // Record for 3 seconds
+          } catch (error) {
+            console.error('🎵 Voice recording failed:', error);
+            isRecording = false;
+          }
+        }
       });
       
       client.on('call-start', () => {
@@ -331,6 +688,9 @@ export default function VoiceInterviewPage() {
         setIsCallActive(true);
         setLoading(false);
         setError(null);
+        
+        // Start real-time proctoring
+        startProctoring();
       });
       
       client.on('call-end', async () => {
@@ -338,6 +698,9 @@ export default function VoiceInterviewPage() {
         
         setIsCallActive(false);
         setIsCallEnded(true);
+        
+        // Stop proctoring
+        stopProctoring();
         
         // Process transcript locally since webhook won't work on localhost
         try {
@@ -358,7 +721,8 @@ export default function VoiceInterviewPage() {
               body: JSON.stringify({
                 jobId: params.jobId,
                 messages: collectedMessages,
-                duration: callDuration
+                duration: callDuration,
+                proctorViolations: proctorData.violations // Include proctoring violations
               })
             });
             
@@ -885,6 +1249,13 @@ export default function VoiceInterviewPage() {
                         isCallActive ? 'brightness-110 scale-[1.02]' : 'brightness-100 scale-100'
                       }`}
                       style={{ objectPosition: 'center 20%' }}
+                      onTimeUpdate={(e) => {
+                        // Restart video 2 seconds before end for seamless loop
+                        const video = e.target;
+                        if (video.duration - video.currentTime < 2) {
+                          video.currentTime = 0;
+                        }
+                      }}
                       onLoadedData={() => {
                         console.log('✅ AI interviewer video loaded successfully');
                         setAiVideoLoaded(true);
@@ -934,7 +1305,13 @@ export default function VoiceInterviewPage() {
                 </div>
                 
                 {/* USER WEBCAM */}
-                <UserWebcam isVideoOn={videoOn} isMicOn={micOn} userName={user?.name} />
+                <UserWebcam
+                  isVideoOn={videoOn}
+                  isMicOn={micOn}
+                  userName={user?.name}
+                  proctorData={proctorData}
+                  isCallActive={isCallActive}
+                />
             </div>
 
             {/* CONTROLS BAR */}
@@ -1135,9 +1512,10 @@ export default function VoiceInterviewPage() {
   );
 }
 
-// User Webcam Component
-const UserWebcam = ({ isVideoOn, isMicOn, userName }) => {
+// User Webcam Component with Real-time Proctoring
+const UserWebcam = ({ isVideoOn, isMicOn, userName, proctorData, isCallActive }) => {
     const videoRef = useRef(null);
+    const canvasRef = useRef(null);
     const [cameraError, setCameraError] = useState(false);
 
     useEffect(() => {
@@ -1176,16 +1554,108 @@ const UserWebcam = ({ isVideoOn, isMicOn, userName }) => {
         };
     }, [isVideoOn]);
 
+    // Draw bounding box on canvas overlay
+    useEffect(() => {
+        console.log('🎨 Canvas effect triggered:', {
+            hasCanvas: !!canvasRef.current,
+            hasVideo: !!videoRef.current,
+            hasBoundingBox: !!proctorData.boundingBox,
+            isCallActive,
+            proctorData: proctorData
+        });
+
+        if (canvasRef.current && videoRef.current && isCallActive) {
+            const canvas = canvasRef.current;
+            const video = videoRef.current;
+            const ctx = canvas.getContext('2d');
+
+            // Set canvas size to match video
+            canvas.width = video.offsetWidth;
+            canvas.height = video.offsetHeight;
+
+            console.log('🎨 Canvas dimensions:', {
+                canvasWidth: canvas.width,
+                canvasHeight: canvas.height,
+                videoWidth: video.videoWidth,
+                videoHeight: video.videoHeight
+            });
+
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Mirror canvas to match webcam display
+            ctx.save();
+            ctx.scale(-1, 1);
+            ctx.translate(-canvas.width, 0);
+
+            // Draw bounding box if available
+            const bbox = proctorData.boundingBox;
+
+            if (bbox && Array.isArray(bbox) && bbox.length >= 4) {
+                // Flask returns [x1, y1, x2, y2] format - convert to [x, y, width, height]
+                const [x1, y1, x2, y2] = bbox;
+                const x = x1;
+                const y = y1;
+                const w = x2 - x1;
+                const h = y2 - y1;
+
+                // Scale coordinates to canvas size
+                const scaleX = canvas.width / video.videoWidth;
+                const scaleY = canvas.height / video.videoHeight;
+
+                const scaledX = x * scaleX;
+                const scaledY = y * scaleY;
+                const scaledW = w * scaleX;
+                const scaledH = h * scaleY;
+
+                // Set box color based on verification
+                const boxColor = proctorData.faceVerified ? '#3B82F6' : '#EF4444'; // Blue if verified, Red if not
+
+                // Draw bounding box
+                ctx.strokeStyle = boxColor;
+                ctx.lineWidth = 3;
+                ctx.strokeRect(scaledX, scaledY, scaledW, scaledH);
+
+                // Draw name label above bounding box if verified
+                if (proctorData.faceVerified && proctorData.userName) {
+                    ctx.fillStyle = boxColor;
+                    ctx.fillRect(scaledX, scaledY - 30, scaledW, 30);
+
+                    // Reset transform for text to render correctly
+                    ctx.restore();
+                    ctx.save();
+                    
+                    ctx.fillStyle = 'white';
+                    ctx.font = '14px Arial';
+                    ctx.textAlign = 'center';
+                    // Mirror the text position back
+                    const mirroredTextX = canvas.width - (scaledX + scaledW / 2);
+                    ctx.fillText(proctorData.userName, mirroredTextX, scaledY - 10);
+                }
+            }
+            
+            ctx.restore();
+        }
+    }, [proctorData, isCallActive]);
+
     return (
         <div className="relative w-full h-full bg-gray-100 rounded-2xl overflow-hidden flex items-center justify-center border border-gray-300 shadow-lg">
             {isVideoOn && !cameraError ? (
-                <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full h-full object-cover transform scale-x-[-1]"
-                />
+                <>
+                    <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="w-full h-full object-cover transform scale-x-[-1]"
+                    />
+                    {/* Proctoring Overlay Canvas */}
+                    <canvas
+                        ref={canvasRef}
+                        className="absolute inset-0 w-full h-full pointer-events-none transform scale-x-[-1]"
+                        style={{ zIndex: 10 }}
+                    />
+                </>
             ) : (
                 <div className="flex flex-col items-center gap-3 text-gray-500">
                     <div className="w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center border border-gray-300">
@@ -1194,6 +1664,39 @@ const UserWebcam = ({ isVideoOn, isMicOn, userName }) => {
                     <span className="text-xs uppercase tracking-wider font-bold text-center">
                         {cameraError ? 'Camera Error' : 'Camera Off'}
                     </span>
+                </div>
+            )}
+
+            {/* Proctoring Status Indicators */}
+            {isCallActive && (
+                <div className="absolute top-4 left-4 z-20 flex flex-col gap-2">
+                    {/* Face Verification Status */}
+                    <div className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${
+                        proctorData.faceVerified === true ? 'bg-green-100 text-green-700 border border-green-300' :
+                        proctorData.faceVerified === false ? 'bg-red-100 text-red-700 border border-red-300' :
+                        'bg-gray-100 text-gray-600 border border-gray-300'
+                    }`}>
+                        <div className={`w-2 h-2 rounded-full ${
+                            proctorData.faceVerified === true ? 'bg-green-500' :
+                            proctorData.faceVerified === false ? 'bg-red-500' :
+                            'bg-gray-400'
+                        }`}></div>
+                        Face {proctorData.faceVerified === true ? 'OK' : proctorData.faceVerified === false ? 'FAIL' : 'CHECK'}
+                    </div>
+
+                    {/* Voice Verification Status */}
+                    <div className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${
+                        proctorData.voiceVerified === true ? 'bg-green-100 text-green-700 border border-green-300' :
+                        proctorData.voiceVerified === false ? 'bg-red-100 text-red-700 border border-red-300' :
+                        'bg-gray-100 text-gray-600 border border-gray-300'
+                    }`}>
+                        <div className={`w-2 h-2 rounded-full ${
+                            proctorData.voiceVerified === true ? 'bg-green-500' :
+                            proctorData.voiceVerified === false ? 'bg-red-500' :
+                            'bg-gray-400'
+                        }`}></div>
+                        Voice {proctorData.voiceVerified === true ? 'OK' : proctorData.voiceVerified === false ? 'FAIL' : 'CHECK'}
+                    </div>
                 </div>
             )}
 
@@ -1216,6 +1719,16 @@ const UserWebcam = ({ isVideoOn, isMicOn, userName }) => {
                     {userName || 'You'}
                 </div>
             </div>
+
+            {/* Live Violations Alert */}
+            {proctorData.violations.length > 0 && (
+                <div className="absolute bottom-4 right-4 z-20">
+                    <div className="bg-red-100 border border-red-300 text-red-700 px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-2">
+                        <AlertCircle size={14} />
+                        {proctorData.violations.length} Issue{proctorData.violations.length > 1 ? 's' : ''} Detected
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

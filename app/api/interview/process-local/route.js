@@ -20,7 +20,7 @@ export async function POST(request) {
     }
 
     const userId = authCheck.userId; // requireAuth returns { user, userId }
-    const { jobId, messages, duration } = await request.json();
+    const { jobId, messages, duration, proctorViolations } = await request.json();
 
     console.log('📊 Interview data:', {
       jobId,
@@ -152,6 +152,7 @@ export async function POST(request) {
       confidence: feedback.confidence || 0,
       overallPerformance: feedback.overallPerformance || 0,
       detailedFeedback: feedback.detailedFeedback || 'Interview completed successfully.',
+      proctorViolations: proctorViolations || [], // Add proctoring violations for HR review
       interviewDuration: duration || 0
     };
     
