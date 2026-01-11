@@ -19,13 +19,6 @@ export default function HostDashboardPage() {
   useEffect(() => {
     // Force fresh data load on mount
     fetchDashboardData();
-    
-    // Optional: Set up periodic refresh every 30 seconds
-    const interval = setInterval(() => {
-      fetchDashboardData();
-    }, 30000);
-    
-    return () => clearInterval(interval);
   }, [selectedPeriod]);
 
   const fetchDashboardData = async () => {
