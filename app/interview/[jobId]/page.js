@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
-import { Mic, MicOff, Phone, PhoneOff, AlertCircle, CheckCircle, Shield } from 'lucide-react';
+import { Mic, MicOff, Phone, PhoneOff, AlertCircle, CheckCircle, Shield, Video, VideoOff, MoreHorizontal, Sparkles, Activity, Wifi, User } from 'lucide-react';
 import VapiSDK from '@vapi-ai/web';
 
 const Vapi = VapiSDK.default || VapiSDK;
@@ -28,8 +28,15 @@ export default function VoiceInterviewPage() {
   const [verificationPassed, setVerificationPassed] = useState(false);
   const [transcriptMessages, setTranscriptMessages] = useState([]);
   const [checkingVerification, setCheckingVerification] = useState(true);
+  const [videoOn, setVideoOn] = useState(true);
+  const [micOn, setMicOn] = useState(true);
+  const [aiVideoLoaded, setAiVideoLoaded] = useState(false);
+  const [currentSpeaker, setCurrentSpeaker] = useState(null); // 'assistant' or 'user'
+  const [partialTranscript, setPartialTranscript] = useState('');
   const vapiInitialized = useRef(false);
   const messagesRef = useRef([]); // Use ref to avoid closure issues in event handlers
+  const transcriptEndRef = useRef(null);
+  const aiVideoRef = useRef(null);
   // Get assistant ID from URL params or job data
   const urlAssistantId = searchParams.get('assistant');
   const [finalAssistantId, setFinalAssistantId] = useState(null);
@@ -48,6 +55,31 @@ export default function VoiceInterviewPage() {
     }
     return () => clearInterval(interval);
   }, [isCallActive]);
+
+  // Auto-scroll Transcript
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [transcriptMessages]);
+
+  // Control AI video playback based on call state and speaker
+  useEffect(() => {
+    if (aiVideoRef.current && aiVideoLoaded) {
+      if (isCallActive) {
+        // Play video when AI is speaking, pause when user speaks
+        if (currentSpeaker === 'assistant' || currentSpeaker === null) {
+          aiVideoRef.current.play().catch(e => console.log('Video autoplay handled:', e));
+        } else if (currentSpeaker === 'user') {
+          aiVideoRef.current.pause();
+        }
+      } else if (isCallEnded) {
+        // Pause video when interview ends
+        aiVideoRef.current.pause();
+      } else {
+        // Keep playing before interview starts
+        aiVideoRef.current.play().catch(e => console.log('Video autoplay handled:', e));
+      }
+    }
+  }, [isCallActive, isCallEnded, aiVideoLoaded, currentSpeaker]);
 
   const checkVerificationStatus = async () => {
     try {
@@ -286,10 +318,12 @@ export default function VoiceInterviewPage() {
       // Setup event listeners
       client.on('speech-start', () => {
         console.log('🎤 User started speaking');
+        setCurrentSpeaker('user');
       });
-      
+
       client.on('speech-end', () => {
         console.log('🎤 User stopped speaking');
+        setCurrentSpeaker('assistant');
       });
       
       client.on('call-start', () => {
@@ -353,12 +387,68 @@ export default function VoiceInterviewPage() {
       
       client.on('message', (message) => {
         console.log('📝 Live transcript update:', message);
-        
-        // Store ALL messages in both state and ref
-        // Use ref to avoid closure issues in call-end handler
+
+        // Handle different types of VAPI messages properly
+        if (message && message.type === 'transcript') {
+          const { role, transcriptType, transcript } = message;
+
+          // Only process final transcripts to avoid fragmentation
+          if (transcriptType === 'final' && transcript && transcript.trim()) {
+            const cleanTranscript = transcript.trim();
+
+            // Create a proper transcript message
+            const transcriptMessage = {
+              role: role,
+              content: cleanTranscript,
+              timestamp: new Date().toISOString(),
+              type: 'transcript'
+            };
+
+            console.log('📝 Adding final transcript:', transcriptMessage);
+
+            // Clear partial transcript when we get the final one
+            setPartialTranscript('');
+
+            // Store in both ref and state
+            messagesRef.current = [...messagesRef.current, transcriptMessage];
+            setTranscriptMessages(prev => [...prev, transcriptMessage]);
+          } else if (transcriptType === 'partial' && transcript) {
+            // Handle partial transcripts for real-time display
+            setPartialTranscript(transcript);
+          }
+        } else if (message && message.type === 'conversation-update') {
+          // Handle conversation updates
+          const conversation = message.conversation;
+          if (conversation && conversation.length > 0) {
+            const lastMessage = conversation[conversation.length - 1];
+            if (lastMessage && lastMessage.content && lastMessage.content.trim()) {
+              // Only add if it's not already in our messages
+              const isDuplicate = messagesRef.current.some(msg =>
+                msg.content === lastMessage.content && msg.role === lastMessage.role
+              );
+
+              if (!isDuplicate) {
+                const conversationMessage = {
+                  role: lastMessage.role,
+                  content: lastMessage.content.trim(),
+                  timestamp: new Date().toISOString(),
+                  type: 'conversation'
+                };
+
+                messagesRef.current = [...messagesRef.current, conversationMessage];
+                setTranscriptMessages(prev => [...prev, conversationMessage]);
+              }
+            }
+          }
+        }
+
+        // Store ALL messages for final processing (backward compatibility)
         if (message) {
-          messagesRef.current = [...messagesRef.current, message];
-          setTranscriptMessages(prev => [...prev, message]);
+          // Don't duplicate - only add raw messages that aren't transcripts we've processed
+          if (message.type !== 'transcript' || message.transcriptType !== 'final') {
+            const rawMessage = { ...message, timestamp: new Date().toISOString() };
+            messagesRef.current = [...messagesRef.current, rawMessage];
+          }
         }
       });
       
@@ -408,6 +498,8 @@ export default function VoiceInterviewPage() {
       setLoading(true);
       setError(null);
       setTranscriptMessages([]); // Clear previous transcript
+      setPartialTranscript(''); // Clear partial transcript
+      setCurrentSpeaker(null); // Reset speaker
       messagesRef.current = []; // Also clear ref
       
       console.log('Starting interview process...');
@@ -739,193 +831,391 @@ export default function VoiceInterviewPage() {
     );
   }
 
+  // Main return - clean white and blue UI to match platform
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <div className="max-w-2xl mx-auto px-4 py-8">
-        <div className="bg-white rounded-2xl shadow-xl p-8">
-          {/* Header */}
-          <div className="text-center mb-8">
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">AI Voice Interview</h1>
-            <p className="text-gray-600">{job.jobTitle} at {job.hostId?.organization}</p>
-            <p className="text-sm text-gray-500 mt-2">Duration: {job.voiceInterviewDuration} minutes</p>
-            {user && (
-              <p className="text-sm text-blue-600 mt-1">Candidate: {user.name}</p>
-            )}
+    <div className="h-screen bg-gray-50 text-gray-900 font-sans flex flex-col overflow-hidden">
+
+      {/* TOP HEADER */}
+      <header className="h-16 px-6 border-b border-gray-200 flex items-center justify-between bg-white shadow-sm shrink-0 z-30">
+          <div className="flex items-center gap-4">
+             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center shadow-lg shadow-blue-500/20">
+                <Sparkles size={18} className="text-white" />
+             </div>
+             <div>
+                <h1 className="text-sm font-bold text-gray-900 tracking-wide">AI Voice Interview</h1>
+                <div className="flex items-center gap-2 mt-0.5">
+                    <span className={`w-1.5 h-1.5 rounded-full ${isCallActive ? 'bg-green-500' : 'bg-blue-500'} animate-pulse`} />
+                    <span className="text-[10px] text-gray-500 font-mono uppercase tracking-wider">
+                        {isCallActive ? 'Live Interview' : 'Ready to Start'}
+                    </span>
+                </div>
+             </div>
           </div>
+          <div className="flex items-center gap-3">
+             <div className="px-3 py-1.5 rounded-full bg-blue-50 border border-blue-200 flex items-center gap-2 text-xs font-mono text-gray-600">
+                 <Wifi size={12} className={`${navigator.onLine ? 'text-green-500' : 'text-red-500'}`} />
+                 <span>{navigator.onLine ? 'Connected' : 'Offline'}</span>
+             </div>
+             {job && (
+               <div className="text-xs text-gray-600 font-medium">
+                 {job.jobTitle}
+               </div>
+             )}
+          </div>
+      </header>
 
-          {/* Permission Status */}
-          {!permissionGranted && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
-              <div className="flex items-start">
-                <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5 mr-3" />
-                <div>
-                  <h3 className="text-sm font-medium text-yellow-800">Microphone Permission Required</h3>
-                  <p className="text-sm text-yellow-700 mt-1">
-                    Please allow microphone access to participate in the voice interview.
-                  </p>
-                  <button
-                    onClick={requestMicrophonePermission}
-                    className="mt-2 bg-yellow-600 text-white px-4 py-2 rounded text-sm hover:bg-yellow-700"
-                  >
-                    Grant Permission
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+      {/* MAIN STAGE */}
+      <main className="flex-1 p-4 lg:p-6 flex gap-6 overflow-hidden">
+         
+         {/* LEFT: VIDEO GRID */}
+         <section className="flex-[2] flex flex-col gap-4 min-h-0">
+            <div className="flex-1 flex gap-4 min-h-0">
+                {/* AI AVATAR (Video) */}
+                <div className="relative w-full h-full bg-gray-100 overflow-hidden rounded-2xl border border-gray-300 shadow-lg">
+                  <div className="w-full h-full relative">
+                    <video
+                      ref={aiVideoRef}
+                      src="/interview.mp4"
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      preload="auto"
+                      className={`w-full h-full object-cover transition-all duration-300 ${
+                        isCallActive ? 'brightness-110 scale-[1.02]' : 'brightness-100 scale-100'
+                      }`}
+                      style={{ objectPosition: 'center 20%' }}
+                      onLoadedData={() => {
+                        console.log('✅ AI interviewer video loaded successfully');
+                        setAiVideoLoaded(true);
+                      }}
+                      onError={(e) => {
+                        console.error('❌ Video failed to load:', e);
+                        console.log('🔄 Falling back to image');
+                        setAiVideoLoaded(false);
+                        e.target.style.display = 'none';
+                        e.target.nextElementSibling.style.display = 'block';
+                      }}
+                    />
+                    <img
+                      src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?q=80&w=1000&auto=format&fit=crop"
+                      alt="AI Interviewer Fallback"
+                      className="w-full h-full object-cover"
+                      style={{ objectPosition: 'center 20%', display: 'none' }}
+                    />
 
-          {/* Re-interview Notice */}
-          {isReinterview && previousInterview && !isCallActive && !isCallEnded && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-              <div className="flex items-start">
-                <AlertCircle className="h-5 w-5 text-blue-600 mt-0.5 mr-3" />
-                <div className="text-left flex-1">
-                  <h3 className="text-sm font-medium text-blue-800">Re-interview Opportunity</h3>
-                  <p className="text-sm text-blue-700 mt-1">
-                    You've already completed this interview (Attempt #{previousInterview.attemptNumber}, Score: {previousInterview.score}/100).
-                    You can retake it to improve your score. Your latest attempt will be used for evaluation.
-                  </p>
-                  <div className="mt-2 text-xs text-blue-600">
-                    <div>Previous Score: {previousInterview.score}/100</div>
-                    <div>Final Score: {previousInterview.finalScore}/100</div>
-                    <div>Total Attempts: {previousInterview.totalAttempts}</div>
-                    <div>Last Completed: {new Date(previousInterview.completedAt).toLocaleString()}</div>
+                    {/* Loading overlay for video */}
+                    {!aiVideoLoaded && (
+                      <div className="absolute inset-0 bg-white flex items-center justify-center">
+                        <div className="text-center">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
+                          <p className="text-xs text-gray-600">Loading AI Interviewer...</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              </div>
-            </div>
-          )}
 
-          {/* Interview Status */}
-          <div className="text-center mb-8">
-            {!isCallActive && !isCallEnded && permissionGranted && (
-              <div>
-                <div className="w-24 h-24 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Mic className="h-12 w-12 text-blue-600" />
-                </div>
-                <h2 className="text-xl font-semibold text-gray-900 mb-4">
-                  {isReinterview ? 'Ready to Retake Interview?' : 'Ready to Start?'}
-                </h2>
-                <p className="text-gray-600 mb-6">
-                  {isReinterview ? (
-                    'Take your time and give it your best! This attempt will replace your previous score.'
-                  ) : (
-                    'Make sure you\'re in a quiet environment with a good internet connection. The AI interviewer will ask you questions about your background and experience.'
+                  {/* LABEL */}
+                  <div className="absolute bottom-4 left-4 z-20">
+                    <div className={`backdrop-blur-md border px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 transition-all ${isCallActive ? 'bg-blue-500/20 border-blue-500/30 text-blue-700 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'bg-white/90 border-gray-300 text-gray-700'}`}>
+                        <Sparkles size={12} className={isCallActive ? "text-blue-500 animate-pulse" : "text-gray-500"} />
+                        <span>AI Interviewer</span>
+                    </div>
+                  </div>
+
+                  {/* SPEAKING INDICATOR */}
+                  {isCallActive && (
+                    <div className="absolute bottom-5 right-5 flex items-end gap-1 h-6 z-20">
+                        <span className="w-1 bg-blue-500 animate-[bounce_1s_infinite] h-3 rounded-full" />
+                        <span className="w-1 bg-blue-500 animate-[bounce_1.2s_infinite] h-5 rounded-full" />
+                        <span className="w-1 bg-blue-500 animate-[bounce_0.8s_infinite] h-2 rounded-full" />
+                    </div>
                   )}
-                </p>
-                <button
-                  onClick={startInterview}
-                  disabled={loading}
-                  className="bg-blue-600 text-white px-8 py-3 rounded-full hover:bg-blue-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? 'Creating Assistant & Starting...' : (isReinterview ? 'Retake Interview' : 'Start Interview')}
-                </button>
-              </div>
-            )}
-
-            {isCallActive && (
-              <div>
-                <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
-                  <Mic className="h-12 w-12 text-green-600" />
                 </div>
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">Interview in Progress</h2>
-                <p className="text-gray-600 mb-4">Speak clearly and take your time to answer each question.</p>
-                <div className="text-2xl font-bold text-gray-900 mb-4">{formatTime(callDuration)}</div>
-                <button
-                  onClick={endInterview}
-                  disabled={loading}
-                  className="bg-red-600 text-white px-6 py-2 rounded-full hover:bg-red-700 disabled:opacity-50"
-                >
-                  <PhoneOff className="h-5 w-5 inline mr-2" />
-                  {loading ? 'Ending...' : 'End Interview'}
-                </button>
                 
-                {/* Live Status Indicators */}
-                <div className="mt-6 flex justify-center space-x-4 text-sm">
-                  <div className="flex items-center text-green-600">
-                    <div className="w-2 h-2 bg-green-600 rounded-full mr-2 animate-pulse"></div>
-                    Recording Active
-                  </div>
-                  <div className="flex items-center text-blue-600">
-                    <Mic className="w-4 h-4 mr-1" />
-                    Listening
-                  </div>
-                </div>
-              </div>
-            )}
+                {/* USER WEBCAM */}
+                <UserWebcam isVideoOn={videoOn} isMicOn={micOn} userName={user?.name} />
+            </div>
 
-            {isCallEnded && (
-              <div>
-                <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <CheckCircle className="h-12 w-12 text-green-600" />
+            {/* CONTROLS BAR */}
+            <div className="h-20 bg-white border border-gray-200 rounded-2xl flex items-center justify-between px-8 shadow-lg shrink-0 relative">
+
+                {/* Timer */}
+                <div className="flex items-center gap-3 font-mono text-gray-600 text-sm w-32">
+                   <span className={`w-2 h-2 ${isCallActive ? 'bg-red-500' : 'bg-blue-500'} rounded-full ${isCallActive ? 'animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.5)]' : ''}`}></span>
+                   {formatTime(callDuration)}
                 </div>
-                <h2 className="text-xl font-semibold text-gray-900 mb-4">Interview Completed!</h2>
-                {successMessage && (
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
-                    <p className="text-green-700 text-sm">{successMessage}</p>
+
+                {/* Center Buttons */}
+                <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 flex items-center gap-4">
+                    <button
+                        onClick={() => setMicOn(!micOn)}
+                        className={`p-4 rounded-full transition-all duration-200 ${micOn ? 'bg-blue-500 text-white hover:bg-blue-600 border border-blue-500' : 'bg-red-500/20 text-red-500 border border-red-500/50 hover:bg-red-500/30'}`}
+                        title={micOn ? "Mute Microphone" : "Unmute Microphone"}
+                    >
+                        {micOn ? <Mic size={22} /> : <MicOff size={22} />}
+                    </button>
+
+                    <button
+                        onClick={() => setVideoOn(!videoOn)}
+                        className={`p-4 rounded-full transition-all duration-200 ${videoOn ? 'bg-blue-500 text-white hover:bg-blue-600 border border-blue-500' : 'bg-red-500/20 text-red-500 border border-red-500/50 hover:bg-red-500/30'}`}
+                        title={videoOn ? "Turn Off Camera" : "Turn On Camera"}
+                    >
+                        {videoOn ? <Video size={22} /> : <VideoOff size={22} />}
+                    </button>
+
+                    {isCallActive ? (
+                      <button
+                          onClick={endInterview}
+                          disabled={loading}
+                          className="px-8 py-4 bg-red-600 hover:bg-red-700 text-white rounded-full font-medium ml-4 shadow-lg shadow-red-500/20 transition-all flex items-center gap-2 disabled:opacity-50"
+                      >
+                          <PhoneOff size={20} />
+                          <span>{loading ? 'Ending...' : 'End'}</span>
+                      </button>
+                    ) : (
+                      <button
+                          onClick={startInterview}
+                          disabled={loading || !permissionGranted}
+                          className="px-8 py-4 bg-green-600 hover:bg-green-700 text-white rounded-full font-medium ml-4 shadow-lg shadow-green-500/20 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                          <Phone size={20} />
+                          <span>{loading ? 'Starting...' : 'Start Interview'}</span>
+                      </button>
+                    )}
+                </div>
+
+                <div className="w-32 flex justify-end">
+                    <button className="p-2 text-gray-500 hover:text-gray-700 transition-colors">
+                        <MoreHorizontal size={24} />
+                    </button>
+                </div>
+            </div>
+         </section>
+
+         {/* RIGHT: TRANSCRIPT */}
+         <aside className="w-[380px] hidden lg:flex bg-white border border-gray-200 rounded-2xl flex-col overflow-hidden shadow-lg">
+            <div className="p-5 border-b border-gray-200 bg-blue-50 flex justify-between items-center">
+                <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">Live Transcript</span>
+                <Activity size={14} className="text-blue-500" />
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-6 scroll-smooth">
+                {transcriptMessages.length === 0 && !partialTranscript && !isCallActive && (
+                  <div className="text-center text-gray-500 text-sm mt-8">
+                    <p>Transcript will appear here during the interview</p>
                   </div>
                 )}
-                <p className="text-gray-600 mb-4">
-                  Thank you for completing the interview. You'll be redirected to see your results shortly.
-                </p>
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                <p className="text-sm text-gray-500">
-                  Processing your interview responses...
-                </p>
-                {callId && (
-                  <p className="text-xs text-gray-400 mt-2">
-                    Interview ID: {callId}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
 
-          {/* Interview Tips */}
-          {!isCallActive && !isCallEnded && permissionGranted && (
-            <div className="bg-blue-50 rounded-lg p-6">
-              <h3 className="font-semibold text-gray-900 mb-3">Interview Tips:</h3>
-              <ul className="text-sm text-gray-600 space-y-2">
+                {/* Display completed transcript messages */}
+                {transcriptMessages
+                  .filter(msg => msg.content && msg.content.trim() && msg.content !== 'Message')
+                  .map((msg, index) => {
+                    const isAI = msg.role === 'assistant' || msg.role === 'ai';
+                    const timestamp = msg.timestamp ? new Date(msg.timestamp) : new Date();
+
+                    return (
+                      <div key={`${index}-${msg.timestamp}`} className={`flex flex-col gap-1 ${isAI ? 'items-start' : 'items-end'}`}>
+                          <div className={`flex items-center gap-2 text-[10px] uppercase font-bold tracking-wider mb-1 ${isAI ? 'text-blue-500 flex-row' : 'text-gray-500 flex-row-reverse'}`}>
+                              <span>{isAI ? 'AI' : 'You'}</span>
+                              <span>•</span>
+                              <span>{timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                          <div className={`p-4 rounded-2xl text-sm leading-relaxed shadow-sm max-w-[90%] ${
+                              isAI
+                              ? 'bg-blue-50 text-blue-900 rounded-tl-none border border-blue-200'
+                              : 'bg-blue-600 text-white rounded-tr-none shadow-blue-500/10'
+                          }`}>
+                              {msg.content}
+                          </div>
+                      </div>
+                    );
+                  })}
+
+                {/* Display partial transcript if available */}
+                {partialTranscript && partialTranscript.trim() && (
+                  <div className="flex flex-col gap-1 items-end opacity-70">
+                      <div className="flex items-center gap-2 text-[10px] uppercase font-bold tracking-wider mb-1 text-gray-400 flex-row-reverse">
+                          <span>You</span>
+                          <span>•</span>
+                          <span>typing...</span>
+                      </div>
+                      <div className="p-4 rounded-2xl text-sm leading-relaxed shadow-sm max-w-[90%] bg-gray-200 text-gray-700 rounded-tr-none border border-gray-300 italic">
+                          {partialTranscript}
+                      </div>
+                  </div>
+                )}
+
+                <div ref={transcriptEndRef} />
+            </div>
+
+            <div className="p-4 bg-gray-50 border-t border-gray-200">
+                <div className="w-full bg-white border border-gray-200 rounded-xl py-3 pl-4 text-sm text-gray-600 flex items-center gap-2">
+                  {isCallActive ? (
+                    <>
+                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                      <span>Listening...</span>
+                    </>
+                  ) : (
+                    <span>Waiting to start...</span>
+                  )}
+                </div>
+            </div>
+         </aside>
+
+      </main>
+
+      {/* Instructions Overlay - Show before interview starts */}
+      {!isCallActive && !isCallEnded && permissionGranted && (
+        <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm z-40 flex items-center justify-center">
+          <div className="max-w-md bg-white border border-gray-200 rounded-2xl p-8 text-center shadow-2xl">
+            <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Mic className="h-10 w-10 text-blue-600" />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">
+              {isReinterview ? 'Ready to Retake Interview?' : 'Ready to Start?'}
+            </h2>
+            <p className="text-gray-600 mb-6">
+              {job?.jobTitle} at {job?.hostId?.organization}
+            </p>
+            <p className="text-gray-700 mb-6 text-sm">
+              {isReinterview ? (
+                'This attempt will replace your previous score. Take your time and give it your best!'
+              ) : (
+                'Make sure you\'re in a quiet environment. The AI will ask questions about your background and experience.'
+              )}
+            </p>
+
+            {/* Interview Tips */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 text-left">
+              <h3 className="font-semibold text-gray-900 mb-3 text-sm">Interview Tips:</h3>
+              <ul className="text-xs text-gray-700 space-y-2">
                 <li>• Speak clearly and at a normal pace</li>
                 <li>• Take a moment to think before answering</li>
-                <li>• Be specific and provide examples when possible</li>
-                <li>• If you don't understand a question, ask for clarification</li>
+                <li>• Be specific and provide examples</li>
                 <li>• Stay calm and be yourself</li>
-                <li>• Ensure your microphone is working properly</li>
               </ul>
             </div>
-          )}
 
-          {/* Technical Requirements */}
-          {!isCallActive && !isCallEnded && (
-            <div className="mt-6 bg-gray-50 rounded-lg p-4">
-              <h3 className="font-medium text-gray-900 mb-2">Technical Requirements:</h3>
-              <div className="text-sm text-gray-600 space-y-1">
-                <div className="flex items-center">
-                  <div className={`w-2 h-2 rounded-full mr-2 ${
-                    permissionGranted ? 'bg-green-500' : 'bg-red-500'
-                  }`}></div>
-                  Microphone Access: {permissionGranted ? 'Granted' : 'Required'}
-                </div>
-                <div className="flex items-center">
-                  <div className={`w-2 h-2 rounded-full mr-2 ${
-                    isVapiReady ? 'bg-green-500' : 'bg-yellow-500'
-                  }`}></div>
-                  Interview System: {isVapiReady ? 'Ready' : 'Loading...'}
-                </div>
-                <div className="flex items-center">
-                  <div className={`w-2 h-2 rounded-full mr-2 ${
-                    navigator.onLine ? 'bg-green-500' : 'bg-red-500'
-                  }`}></div>
-                  Internet Connection: {navigator.onLine ? 'Connected' : 'Disconnected'}
-                </div>
-              </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => router.push('/jobs')}
+                className="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg hover:bg-gray-300 font-medium border border-gray-300"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={startInterview}
+                disabled={loading}
+                className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Starting...' : 'Start Interview'}
+              </button>
             </div>
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Monitoring removed - transcript-based feedback after interview */}
+      {/* Call Ended Overlay */}
+      {isCallEnded && (
+        <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm z-40 flex items-center justify-center">
+          <div className="max-w-md bg-white border border-gray-200 rounded-2xl p-8 text-center shadow-2xl">
+            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <CheckCircle className="h-10 w-10 text-green-600" />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">Interview Completed!</h2>
+            <p className="text-gray-600 mb-6">
+              Thank you for completing the interview. Processing your responses...
+            </p>
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500 mx-auto"></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+// User Webcam Component
+const UserWebcam = ({ isVideoOn, isMicOn, userName }) => {
+    const videoRef = useRef(null);
+    const [cameraError, setCameraError] = useState(false);
+
+    useEffect(() => {
+        let stream = null;
+        const startCamera = async () => {
+            if (isVideoOn) {
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            width: { ideal: 1920 },
+                            height: { ideal: 1080 },
+                            facingMode: 'user',
+                            frameRate: { ideal: 30 },
+                            aspectRatio: { ideal: 16/9 }
+                        },
+                        audio: false
+                    });
+                    if (videoRef.current) {
+                        videoRef.current.srcObject = stream;
+                        setCameraError(false);
+                    }
+                } catch (err) {
+                    console.error("Camera Error:", err);
+                    setCameraError(true);
+                }
+            } else {
+                if (videoRef.current) videoRef.current.srcObject = null;
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                }
+            }
+        };
+        startCamera();
+        return () => {
+            if (stream) stream.getTracks().forEach(track => track.stop());
+        };
+    }, [isVideoOn]);
+
+    return (
+        <div className="relative w-full h-full bg-gray-100 rounded-2xl overflow-hidden flex items-center justify-center border border-gray-300 shadow-lg">
+            {isVideoOn && !cameraError ? (
+                <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover transform scale-x-[-1]"
+                />
+            ) : (
+                <div className="flex flex-col items-center gap-3 text-gray-500">
+                    <div className="w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center border border-gray-300">
+                        {cameraError ? <AlertCircle size={24} className="text-red-500" /> : <VideoOff size={24} />}
+                    </div>
+                    <span className="text-xs uppercase tracking-wider font-bold text-center">
+                        {cameraError ? 'Camera Error' : 'Camera Off'}
+                    </span>
+                </div>
+            )}
+
+            {/* Mic Status Badge */}
+            <div className="absolute top-4 right-4 z-20">
+                {!isMicOn ? (
+                    <div className="bg-red-500 text-white p-2 rounded-full shadow-lg">
+                        <MicOff size={16} />
+                    </div>
+                ) : (
+                    <div className="bg-blue-500 text-white p-2 rounded-full shadow-lg">
+                        <Mic size={16} />
+                    </div>
+                )}
+            </div>
+
+            {/* Label */}
+            <div className="absolute bottom-4 left-4 z-20">
+                <div className="bg-white/90 backdrop-blur-md border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg text-sm font-medium">
+                    {userName || 'You'}
+                </div>
+            </div>
+        </div>
+    );
+};

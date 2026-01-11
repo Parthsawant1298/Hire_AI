@@ -31,21 +31,35 @@ export default function VerificationTest() {
 
   const generateVerificationText = async () => {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
       const response = await fetch('/api/verification/generate-text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ purpose: 'verification' })
+        body: JSON.stringify({ purpose: 'verification' }),
+        signal: controller.signal
       });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
       const data = await response.json();
       if (data.success) {
         setVerificationText(data.text);
       } else {
-        setError('Failed to generate verification text');
+        setError(data.message || 'Failed to generate verification text');
       }
     } catch (error) {
       console.error('Text generation error:', error);
-      setError('Failed to generate verification text');
+      if (error.name === 'AbortError') {
+        setError('Request timed out. Please refresh the page and try again.');
+      } else {
+        setError('Failed to generate verification text. Please refresh and try again.');
+      }
     }
   };
 
@@ -152,7 +166,7 @@ export default function VerificationTest() {
 
     try {
       const formData = new FormData();
-      
+
       // Convert base64 image to blob
       const imageResponse = await fetch(capturedImage);
       const imageBlob = await imageResponse.blob();
@@ -164,17 +178,24 @@ export default function VerificationTest() {
         body: formData
       });
 
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
       setFaceVerificationResult(data);
 
       if (data.success && data.verified) {
         // Auto-proceed to voice step
         setTimeout(() => setStep(2), 1500);
+      } else if (!data.success) {
+        setError(data.message || 'Face verification failed');
       }
 
     } catch (error) {
       console.error('Face verification error:', error);
-      setError('Failed to verify face');
+      setError('Failed to verify face. Please try again.');
+      setFaceVerificationResult(null);
     } finally {
       setLoading(false);
     }
@@ -197,13 +218,17 @@ export default function VerificationTest() {
         body: formData
       });
 
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
       setVoiceVerificationResult(data);
 
       // Calculate overall result
       const faceVerified = faceVerificationResult?.verified || false;
       const voiceVerified = data.verified || false;
-      
+
       setOverallResult({
         verified: faceVerified && voiceVerified,
         faceScore: faceVerificationResult?.similarity || 0,
@@ -214,9 +239,14 @@ export default function VerificationTest() {
         }
       });
 
+      if (!data.success && data.message) {
+        setError(data.message);
+      }
+
     } catch (error) {
       console.error('Voice verification error:', error);
-      setError('Failed to verify voice');
+      setError('Failed to verify voice. Please try again.');
+      setVoiceVerificationResult(null);
     } finally {
       setLoading(false);
     }
@@ -252,17 +282,17 @@ export default function VerificationTest() {
 
   // Auto-verify face when image is captured
   useEffect(() => {
-    if (capturedImage && !faceVerificationResult) {
+    if (capturedImage && !faceVerificationResult && !loading) {
       verifyFace();
     }
   }, [capturedImage]);
 
   // Auto-verify voice when recording is done
   useEffect(() => {
-    if (recordedAudio && !voiceVerificationResult) {
+    if (recordedAudio && !voiceVerificationResult && !loading && verificationText) {
       verifyVoice();
     }
-  }, [recordedAudio]);
+  }, [recordedAudio, verificationText]);
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">

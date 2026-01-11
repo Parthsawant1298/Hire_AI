@@ -17,8 +17,8 @@ export default function InterviewCompletedPage() {
 
   useEffect(() => {
     fetchApplicationStatus();
-    
-    // Auto-refresh every 10 seconds for up to 2 minutes to check for AI feedback
+
+    // Auto-refresh every 15 seconds for up to 3 minutes to check for AI feedback
     const interval = setInterval(() => {
       if (!application?.voiceInterviewCompleted && autoRefreshCount < 12) {
         console.log('⏳ Waiting for AI to generate feedback from transcript...');
@@ -27,31 +27,38 @@ export default function InterviewCompletedPage() {
       } else {
         clearInterval(interval);
       }
-    }, 10000);
+    }, 15000); // Increased to 15 seconds to reduce server load
 
     return () => clearInterval(interval);
-  }, [application?.voiceInterviewCompleted, autoRefreshCount]);
+  }, [application?.voiceInterviewCompleted]);
 
   const fetchApplicationStatus = async () => {
     try {
       console.log('🎯 Fetching application status for job:', params.jobId);
-      
+
       // This would need a new API endpoint to get user's application for this job
       const response = await fetch(`/api/user/applications?jobId=${params.jobId}`, {
         credentials: 'include'
       });
-      
+
       console.log('🎯 Application status response:', response.status);
-      
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
       console.log('🎯 Application data:', data);
-      
+
       if (data.success && data.application) {
         setApplication(data.application);
         setJob(data.job);
-        
-        // If interview feedback is missing, check manually
-        if (!data.application.voiceInterviewCompleted) {
+
+        // Stop auto-refresh if interview is completed
+        if (data.application.voiceInterviewCompleted) {
+          setAutoRefreshCount(12); // Stop further refreshes
+        } else if (!data.application.voiceInterviewCompleted && autoRefreshCount < 6) {
+          // Only check interview status for the first few attempts
           console.log('🎯 Interview not marked as completed, checking status...');
           await checkInterviewStatus();
         }
@@ -60,6 +67,8 @@ export default function InterviewCompletedPage() {
       }
     } catch (error) {
       console.error('❌ Failed to fetch application status:', error);
+      // If we can't fetch status, stop auto-refresh to prevent endless errors
+      setAutoRefreshCount(12);
     } finally {
       setLoading(false);
     }
@@ -251,7 +260,7 @@ export default function InterviewCompletedPage() {
                   <span className="text-sm text-blue-800">Analyzing your responses and generating HR feedback...</span>
                 </div>
                 <p className="text-sm text-blue-700 mt-2">
-                  Auto-refreshing every 10 seconds... ({autoRefreshCount}/12)
+                  Auto-refreshing every 15 seconds... ({autoRefreshCount}/12)
                 </p>
                 <div className="mt-2 text-xs text-blue-600">
                   ✅ AI analyzing communication, technical knowledge, problem solving, confidence, and overall performance
