@@ -17,10 +17,11 @@ export default function Navbar() {
   // Navigation items
   const navItems = [
     { name: "Dashboard", path: "/main" },
+    { name: "Job Apply", path: "/jobs" },
     { name: "Jobs", path: "/job-search" },
     { name: "Courses", path: "/courses" },
     { name: "Roadmap", path: "/roadmap" },
-    { name: "Events", path: "/events" },
+    { name: "Hackathons", path: "/hackathons" },
   ];
   
   // Handle scroll effect
