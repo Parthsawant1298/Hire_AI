@@ -100,9 +100,13 @@ export async function POST(request) {
 
     const transcript = transcriptLines.join('\n');
 
+    console.log('📝 ===== TRANSCRIPT GENERATION =====');
+    console.log('📝 Total messages received:', messages.length);
     console.log('📝 Transcript lines collected:', transcriptLines.length);
-    console.log('📝 Transcript length:', transcript.length);
-    console.log('📝 First 300 chars:', transcript.substring(0, 300));
+    console.log('📝 Transcript length:', transcript.length, 'characters');
+    console.log('📝 ===== FULL TRANSCRIPT =====');
+    console.log(transcript);
+    console.log('📝 ===== END TRANSCRIPT =====');
 
     if (!transcript || transcript.length < 50) {
       console.error('❌ Transcript too short!');
@@ -122,22 +126,43 @@ export async function POST(request) {
 
     // Analyze interview with AI
     console.log('🤖 Analyzing interview with AI...');
-    
-    const feedback = await analyzeVoiceInterview({
-      transcript: transcript,
-      questions: [],
+    console.log('📊 Sending to AI:', {
+      transcriptLength: transcript.length,
       jobTitle: job.jobTitle,
-      interviewDuration: duration || 300,
-      answeredQuestions: Math.floor(messages.length / 2), // Rough estimate
-      totalQuestions: 5,
-      monitoringData: [],
-      anomalies: []
+      messageCount: messages.length
     });
-
-    console.log('✅ AI analysis complete:', {
-      score: feedback.overallPerformance,
-      hasFeedback: !!feedback.detailedFeedback
-    });
+    
+    let feedback;
+    try {
+      feedback = await analyzeVoiceInterview({
+        transcript: transcript,
+        questions: [],
+        jobTitle: job.jobTitle,
+        interviewDuration: duration || 300,
+        answeredQuestions: Math.floor(messages.length / 2),
+        totalQuestions: 5,
+        monitoringData: [],
+        anomalies: []
+      });
+      
+      console.log('✅ AI analysis complete:', {
+        score: feedback.overallPerformance,
+        hasFeedback: !!feedback.detailedFeedback
+      });
+    } catch (aiError) {
+      console.error('❌ AI analysis FAILED:', aiError);
+      console.error('❌ This means NO REAL SCORES - returning error');
+      
+      return NextResponse.json(
+        { 
+          error: 'AI analysis failed',
+          details: `Unable to analyze interview: ${aiError.message}`,
+          transcriptReceived: true,
+          transcriptLength: transcript.length
+        },
+        { status: 500 }
+      );
+    }
 
     // Update application with results
     application.voiceInterviewCompleted = true;

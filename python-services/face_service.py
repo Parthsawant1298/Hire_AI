@@ -1,441 +1,389 @@
-# python-services/face_service.py
-# Python microservice that runs your exact face.py logic
+# python-services/face_service_fixed.py
+# FIXED Face Verification Service - Fast detection with proper face matching
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import numpy as np
 import cv2
+import numpy as np
 import base64
 import requests
 from io import BytesIO
 from PIL import Image
-import os
 import logging
+import tempfile
+import os
 
-# Note: InsightFace requires Visual C++ Build Tools on Windows
-# For now, we'll use a fallback OpenCV-based approach
-# To install InsightFace later: install Microsoft C++ Build Tools, then run:
-# pip install insightface
-
-# Set up logging first
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
+# Try to import InsightFace for better face detection
 try:
     import insightface
     INSIGHTFACE_AVAILABLE = True
-    logger.info("✅ InsightFace successfully imported!")
+    logging.getLogger().info("✅ InsightFace successfully imported!")
 except ImportError as e:
     INSIGHTFACE_AVAILABLE = False
-    logger.warning(f"⚠️ InsightFace not available: {e}")
-    logger.info("🔄 Using OpenCV-based fallback")
+    logging.getLogger().warning(f"⚠️ InsightFace not available: {e}")
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)
 
-# Initialize InsightFace model (your exact face.py setup)
-face_analysis = None
-
-def initialize_face_model():
-    global face_analysis
-    if INSIGHTFACE_AVAILABLE:
-        try:
-            logger.info("🔍 Initializing InsightFace model...")
-            face_analysis = insightface.app.FaceAnalysis(providers=['CPUExecutionProvider'])
-            face_analysis.prepare(ctx_id=0, det_size=(640, 640))
-            logger.info("✅ InsightFace model initialized successfully")
-            return True
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize InsightFace: {e}")
-            return False
-    else:
-        logger.info("✅ Using OpenCV-based face detection fallback")
-        return True
-
-# Your exact Enhanced Face Matcher class from face.py
-class EnhancedFaceMatcher:
-    def __init__(self, ctx_id=0, det_size=(640, 640)):
-        """Initialize with exact settings from face.py"""
-        self.model = face_analysis
+class FastFaceVerification:
+    def __init__(self):
+        # FIXED: Optimized thresholds for better accuracy and speed
+        self.face_threshold = 0.6  # Reasonable threshold
+        self.high_confidence_threshold = 0.7
+        self.min_face_size = 50  # Minimum face size in pixels
+        self.max_image_size = 1024  # Resize large images for speed
         
-        # Your exact thresholds from face.py
-        self.face_confidence_threshold = 0.5
-        self.similarity_threshold = 0.4
-        self.high_confidence_threshold = 0.6
-    
-    def preprocess_image(self, image, target_size=None):
-        """Preprocess image exactly as in face.py"""
+        # Initialize face detection models
+        self.insight_model = None
+        self.cv2_cascade = None
+        
+        self._initialize_models()
+        
+        logger.info("👤 FastFaceVerification initialized")
+        logger.info(f"📊 Face threshold: {self.face_threshold}")
+
+    def _initialize_models(self):
+        """Initialize face detection models"""
         try:
-            if target_size:
-                h, w = image.shape[:2]
-                if w > target_size or h > target_size:
-                    scale = target_size / max(w, h)
-                    image = cv2.resize(image, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_LANCZOS4)
-            return image
+            # Initialize InsightFace (faster and more accurate)
+            if INSIGHTFACE_AVAILABLE:
+                logger.info("🔄 Initializing InsightFace model...")
+                self.insight_model = insightface.app.FaceAnalysis(
+                    providers=['CPUExecutionProvider']  # Use CPU for compatibility
+                )
+                self.insight_model.prepare(ctx_id=0, det_size=(640, 640))
+                logger.info("✅ InsightFace model initialized successfully")
+            
+            # Initialize OpenCV cascade as fallback
+            logger.info("🔄 Initializing OpenCV cascade...")
+            cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+            if os.path.exists(cascade_path):
+                self.cv2_cascade = cv2.CascadeClassifier(cascade_path)
+                logger.info("✅ OpenCV cascade initialized successfully")
+            else:
+                logger.error("❌ OpenCV cascade file not found")
+                
+        except Exception as e:
+            logger.error(f"❌ Model initialization failed: {e}")
+
+    def download_image_from_url(self, image_url):
+        """Download image from Cloudinary URL"""
+        try:
+            logger.info(f"📥 Downloading image from: {image_url}")
+            response = requests.get(image_url, timeout=30)
+            response.raise_for_status()
+            
+            image_data = BytesIO(response.content)
+            logger.info(f"✅ Downloaded {len(response.content)} bytes")
+            return image_data
+        except Exception as e:
+            logger.error(f"❌ Failed to download image: {e}")
+            raise
+
+    def preprocess_image(self, image_data):
+        """Preprocess image for faster detection"""
+        try:
+            # Load image
+            if isinstance(image_data, (BytesIO, str)):
+                if isinstance(image_data, str):
+                    # Base64 string
+                    image_bytes = base64.b64decode(image_data.split(',')[1])
+                    image_data = BytesIO(image_bytes)
+                
+                pil_image = Image.open(image_data)
+            else:
+                pil_image = Image.open(BytesIO(image_data))
+            
+            # Convert to RGB if needed
+            if pil_image.mode != 'RGB':
+                pil_image = pil_image.convert('RGB')
+            
+            # FIXED: Resize large images for speed
+            if max(pil_image.size) > self.max_image_size:
+                ratio = self.max_image_size / max(pil_image.size)
+                new_size = (int(pil_image.size[0] * ratio), int(pil_image.size[1] * ratio))
+                pil_image = pil_image.resize(new_size, Image.Resampling.LANCZOS)
+                logger.info(f"📐 Resized image to: {new_size}")
+            
+            # Convert to numpy array
+            image_array = np.array(pil_image)
+            
+            logger.info(f"🖼️ Processed image shape: {image_array.shape}")
+            return image_array, pil_image
+            
         except Exception as e:
             logger.error(f"❌ Image preprocessing failed: {e}")
-            return image
-    
-    def detect_faces_with_quality_check(self, img):
-        """Detect faces with quality check exactly as in face.py"""
+            raise
+
+    def detect_best_face_insightface(self, image_array):
+        """Detect best face using InsightFace (primary method)"""
         try:
-            logger.info(f"🔍 Detecting faces in image shape: {img.shape}")
-            
-            if INSIGHTFACE_AVAILABLE and self.model is not None:
-                # Convert BGR to RGB for InsightFace
-                img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                faces = self.model.get(img_rgb)
+            if not self.insight_model:
+                return None
                 
-                logger.info(f"🔍 InsightFace detected {len(faces)} raw faces")
-                
-                high_quality_faces = []
-                for i, face in enumerate(faces):
-                    bbox = face.bbox
-                    det_score = face.det_score if hasattr(face, "det_score") else 0.0
-                    width = bbox[2] - bbox[0]
-                    height = bbox[3] - bbox[1]
-                    
-                    logger.info(f"Face {i}: score={det_score:.3f}, size={width}x{height}, bbox={bbox}")
-                    
-                    if det_score >= self.face_confidence_threshold and width > 50 and height > 50:
-                        high_quality_faces.append(face)
-                        logger.info(f"✅ Face {i} passed quality check")
-                    else:
-                        logger.info(f"❌ Face {i} failed quality check (score: {det_score:.3f}, size: {width}x{height})")
-                
-                logger.info(f"✅ {len(high_quality_faces)} faces passed quality check")
-                return high_quality_faces
-            else:
-                # OpenCV fallback
-                logger.info("🔄 Using OpenCV fallback for face detection")
-                return self.detect_faces_opencv(img)
-                
-        except Exception as e:
-            logger.error(f"❌ Face detection failed: {e}")
-            return []
-    
-    def detect_faces_opencv(self, img):
-        """OpenCV fallback face detection"""
-        try:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-            faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+            logger.info("🔍 Detecting face with InsightFace...")
             
-            # Convert to face-like objects
-            face_objects = []
-            for (x, y, w, h) in faces:
-                if w > 50 and h > 50:  # Quality check
-                    face_obj = type('Face', (), {
-                        'bbox': np.array([x, y, x+w, y+h]),
-                        'det_score': 0.8,  # Default score
-                        'embedding': self.extract_opencv_embedding(gray[y:y+h, x:x+w])
-                    })
-                    face_objects.append(face_obj)
+            # Detect faces
+            faces = self.insight_model.get(image_array)
             
-            return face_objects
+            if not faces:
+                logger.warning("⚠️ No faces detected by InsightFace")
+                return None
             
-        except Exception as e:
-            logger.error(f"❌ OpenCV face detection failed: {e}")
-            return []
-    
-    def extract_opencv_embedding(self, face_region):
-        """Extract embedding using OpenCV"""
-        try:
-            face_resized = cv2.resize(face_region, (128, 128))
-            features = cv2.calcHist([face_resized], [0], None, [256], [0, 256])
-            features = features.flatten()
-            features = features / np.linalg.norm(features)
-            return features
-        except Exception as e:
-            logger.error(f"❌ OpenCV embedding extraction failed: {e}")
-            return np.zeros(256)
-    
-    def select_best_face(self, faces):
-        """Select best face exactly as in face.py"""
-        if not faces:
-            return None
-        return max(faces, key=lambda f: (
-            f.det_score if hasattr(f, "det_score") else 0.5,
-            (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
-        ))
-    
-    def cosine_similarity(self, e1, e2):
-        """Exact cosine similarity from face.py"""
-        e1_norm = e1 / np.linalg.norm(e1)
-        e2_norm = e2 / np.linalg.norm(e2)
-        return np.dot(e1_norm, e2_norm)
-    
-    def euclidean_distance(self, e1, e2):
-        """Exact euclidean distance from face.py"""
-        return np.linalg.norm(e1 - e2)
-    
-    def compare_faces(self, img1, img2, visualize=False):
-        """Exact face comparison logic from face.py"""
-        try:
-            logger.info("Loading and preprocessing images...")
-            img1 = self.preprocess_image(img1, target_size=1024)
-            img2 = self.preprocess_image(img2, target_size=1024)
+            # FIXED: Select best face based on detection score and size
+            best_face = max(faces, key=lambda x: x.det_score * np.prod(x.bbox[2:] - x.bbox[:2]))
             
-            logger.info("Detecting faces...")
-            faces1 = self.detect_faces_with_quality_check(img1)
-            faces2 = self.detect_faces_with_quality_check(img2)
+            # Quality checks
+            bbox = best_face.bbox.astype(int)
+            face_width = bbox[2] - bbox[0]
+            face_height = bbox[3] - bbox[1]
             
-            logger.info(f"Found {len(faces1)} faces in Image 1")
-            logger.info(f"Found {len(faces2)} faces in Image 2")
+            if face_width < self.min_face_size or face_height < self.min_face_size:
+                logger.warning(f"⚠️ Face too small: {face_width}x{face_height}")
+                return None
             
-            # Multiple people case (exact logic from face.py)
-            if len(faces1) > 1 or len(faces2) > 1:
-                results = {"matches": [], "unmatched_image1": [], "unmatched_image2": []}
-                used_faces2 = set()
-                
-                for i, f1 in enumerate(faces1):
-                    best_match = None
-                    best_score = 0.0
-                    for j, f2 in enumerate(faces2):
-                        if j not in used_faces2:
-                            sim = self.cosine_similarity(f1.embedding, f2.embedding)
-                            if sim > best_score and sim >= self.similarity_threshold:
-                                best_score = sim
-                                best_match = (j, sim)
-                    
-                    if best_match:
-                        j, score = best_match
-                        results["matches"].append({
-                            "image1_face": i,
-                            "image2_face": j,
-                            "cosine_similarity": score,
-                            "result": "SAME PERSON" if score >= self.high_confidence_threshold else "Possible Match"
-                        })
-                        used_faces2.add(j)
-                    else:
-                        results["unmatched_image1"].append(i)
-                
-                for j in range(len(faces2)):
-                    if j not in used_faces2:
-                        results["unmatched_image2"].append(j)
-                
-                return results
+            if best_face.det_score < 0.5:
+                logger.warning(f"⚠️ Low detection confidence: {best_face.det_score}")
+                return None
             
-            # Single face case (exact logic from face.py)
-            if len(faces1) == 0:
-                return {"error": "No face detected in image 1"}
-            if len(faces2) == 0:
-                return {"error": "No face detected in image 2"}
-            
-            f1 = self.select_best_face(faces1)
-            f2 = self.select_best_face(faces2)
-            
-            sim = self.cosine_similarity(f1.embedding, f2.embedding)
-            dist = self.euclidean_distance(f1.embedding, f2.embedding)
-            
-            if sim >= self.high_confidence_threshold:
-                result = "SAME PERSON (High Confidence)"
-                level = "HIGH"
-            elif sim >= self.similarity_threshold:
-                result = "SAME PERSON (Moderate Confidence)"
-                level = "MODERATE"
-            else:
-                result = "DIFFERENT PERSONS"
-                level = "LOW" if sim > 0.2 else "VERY_LOW"
-            
-            results = {
-                "cosine_similarity": float(sim),
-                "euclidean_distance": float(dist),
-                "result": result,
-                "confidence_level": level,
-                "face1_conf": float(f1.det_score) if hasattr(f1, "det_score") else 0.0,
-                "face2_conf": float(f2.det_score) if hasattr(f2, "det_score") else 0.0,
-                "face1_bbox": f1.bbox.tolist() if hasattr(f1.bbox, 'tolist') else list(f1.bbox),
-                "face2_bbox": f2.bbox.tolist() if hasattr(f2.bbox, 'tolist') else list(f2.bbox)
-            }
-            
-            return results
-            
-        except Exception as e:
-            return {"error": str(e)}
-    
-    def verify_faces(self, image1, image2):
-        """Main verification method for API"""
-        try:
-            logger.info("🔍 Starting face verification process...")
-            
-            result = self.compare_faces(image1, image2)
-            
-            if "error" in result:
-                return {
-                    'verified': False,
-                    'similarity': 0.0,
-                    'confidence': 'NO_FACE_DETECTED',
-                    'result': 'NO_FACE_DETECTED',
-                    'details': result["error"]
-                }
-            
-            if "matches" in result:  # Multiple faces
-                # For API, return the best match
-                if result["matches"]:
-                    best_match = max(result["matches"], key=lambda x: x["cosine_similarity"])
-                    similarity = best_match["cosine_similarity"]
-                    verified = similarity >= self.similarity_threshold
-                    
-                    if similarity >= self.high_confidence_threshold:
-                        confidence = "HIGH"
-                        result_text = "SAME PERSON (High Confidence)"
-                    elif similarity >= self.similarity_threshold:
-                        confidence = "MODERATE" 
-                        result_text = "SAME PERSON (Moderate Confidence)"
-                    else:
-                        confidence = "LOW"
-                        result_text = "DIFFERENT PERSONS"
-                else:
-                    similarity = 0.0
-                    verified = False
-                    confidence = "LOW"
-                    result_text = "DIFFERENT PERSONS"
-            else:  # Single face comparison
-                similarity = result["cosine_similarity"]
-                verified = similarity >= self.similarity_threshold
-                confidence = result["confidence_level"]
-                result_text = result["result"]
-            
-            logger.info(f"✅ Face verification complete: {result_text}, Similarity: {similarity:.3f}")
-            
-            # Include bbox data for real-time tracking
-            bbox_data = None
-            if "face2_bbox" in result:
-                bbox_data = result["face2_bbox"]
-            elif "matches" in result and result["matches"]:
-                # For multiple faces, use the best match bbox
-                best_match = max(result["matches"], key=lambda x: x["cosine_similarity"])
-                bbox_data = result.get("face2_bbox")  # You'd need to store this in matches
+            logger.info(f"✅ InsightFace detected face: score={best_face.det_score:.3f}, size={face_width}x{face_height}")
             
             return {
-                'verified': verified,
-                'similarity': round(similarity, 3),
-                'confidence': confidence,
-                'result': result_text,
-                'details': f"Enhanced Face Matcher - Cosine similarity: {similarity:.3f}, Threshold: {self.similarity_threshold}",
-                'model_used': 'InsightFace ArcFace' if INSIGHTFACE_AVAILABLE else 'OpenCV',
-                'face2_bbox': bbox_data  # Add bbox for real-time tracking
+                'bbox': bbox.tolist(),
+                'embedding': best_face.embedding,
+                'confidence': float(best_face.det_score),
+                'method': 'InsightFace'
             }
             
         except Exception as e:
-            logger.error(f"❌ Face verification error: {e}")
+            logger.error(f"❌ InsightFace detection failed: {e}")
+            return None
+
+    def detect_best_face_opencv(self, image_array):
+        """Detect best face using OpenCV (fallback method)"""
+        try:
+            if not self.cv2_cascade:
+                return None
+                
+            logger.info("🔍 Detecting face with OpenCV...")
+            
+            # Convert to grayscale
+            gray = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
+            
+            # Detect faces
+            faces = self.cv2_cascade.detectMultiScale(
+                gray, 
+                scaleFactor=1.1, 
+                minNeighbors=5, 
+                minSize=(self.min_face_size, self.min_face_size)
+            )
+            
+            if len(faces) == 0:
+                logger.warning("⚠️ No faces detected by OpenCV")
+                return None
+            
+            # Select largest face
+            areas = [w * h for (x, y, w, h) in faces]
+            best_idx = np.argmax(areas)
+            x, y, w, h = faces[best_idx]
+            
+            # Extract face region for embedding simulation
+            face_region = image_array[y:y+h, x:x+w]
+            
+            # Simple embedding: resize to fixed size and flatten
+            face_resized = cv2.resize(face_region, (128, 128))
+            embedding = face_resized.flatten().astype(np.float32)
+            embedding = embedding / (np.linalg.norm(embedding) + 1e-8)  # Normalize
+            
+            logger.info(f"✅ OpenCV detected face: size={w}x{h}")
+            
+            return {
+                'bbox': [x, y, x+w, y+h],
+                'embedding': embedding,
+                'confidence': 0.8,  # Fixed confidence for OpenCV
+                'method': 'OpenCV'
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ OpenCV detection failed: {e}")
+            return None
+
+    def detect_best_face(self, image_array):
+        """Detect best face using available methods"""
+        # Try InsightFace first (faster and more accurate)
+        if INSIGHTFACE_AVAILABLE:
+            face_data = self.detect_best_face_insightface(image_array)
+            if face_data:
+                return face_data
+        
+        # Fallback to OpenCV
+        face_data = self.detect_best_face_opencv(image_array)
+        if face_data:
+            return face_data
+        
+        logger.warning("⚠️ No face detected by any method")
+        return None
+
+    def calculate_similarity(self, embedding1, embedding2):
+        """Calculate normalized cosine similarity between face embeddings"""
+        try:
+            # Ensure embeddings are numpy arrays
+            emb1 = np.array(embedding1, dtype=np.float32)
+            emb2 = np.array(embedding2, dtype=np.float32)
+            
+            # Normalize embeddings
+            emb1_norm = emb1 / (np.linalg.norm(emb1) + 1e-8)
+            emb2_norm = emb2 / (np.linalg.norm(emb2) + 1e-8)
+            
+            # Calculate cosine similarity
+            similarity = np.dot(emb1_norm, emb2_norm)
+            
+            # Ensure similarity is between 0 and 1
+            similarity = max(0.0, min(1.0, (similarity + 1) / 2))
+            
+            logger.info(f"📊 Calculated similarity: {similarity:.4f}")
+            return float(similarity)
+            
+        except Exception as e:
+            logger.error(f"❌ Similarity calculation failed: {e}")
+            return 0.0
+
+    def verify_faces(self, stored_image_url, test_image_base64):
+        """Main face verification method with improved speed and accuracy"""
+        try:
+            logger.info("👤 Starting face verification...")
+            
+            # Download and preprocess stored image
+            stored_image_data = self.download_image_from_url(stored_image_url)
+            stored_image_array, _ = self.preprocess_image(stored_image_data)
+            
+            # Preprocess test image
+            test_image_array, _ = self.preprocess_image(test_image_base64)
+            
+            # Detect faces
+            logger.info("🔍 Detecting face in stored image...")
+            stored_face = self.detect_best_face(stored_image_array)
+            
+            if not stored_face:
+                raise ValueError("No face detected in stored image")
+            
+            logger.info("🔍 Detecting face in test image...")
+            test_face = self.detect_best_face(test_image_array)
+            
+            if not test_face:
+                raise ValueError("No face detected in test image")
+            
+            # Calculate similarity
+            similarity = self.calculate_similarity(
+                stored_face['embedding'], 
+                test_face['embedding']
+            )
+            
+            # FIXED: Use proper threshold for verification
+            verified = similarity >= self.face_threshold
+            
+            # Determine confidence level
+            if similarity >= self.high_confidence_threshold:
+                confidence = 'HIGH'
+            elif verified:
+                confidence = 'MODERATE' 
+            else:
+                confidence = 'LOW'
+            
+            result = {
+                'verified': verified,
+                'similarity': float(similarity),
+                'confidence': confidence,
+                'threshold_used': self.face_threshold,
+                'stored_face': {
+                    'bbox': stored_face['bbox'],
+                    'confidence': stored_face['confidence'],
+                    'method': stored_face['method']
+                },
+                'test_face': {
+                    'bbox': test_face['bbox'], 
+                    'confidence': test_face['confidence'],
+                    'method': test_face['method']
+                },
+                'bbox': test_face['bbox'],  # For UI overlay
+                'model_used': f"FastFaceVerification_{test_face['method']}"
+            }
+            
+            logger.info(f"🎯 VERIFICATION RESULT: {verified}")
+            logger.info(f"📊 Similarity: {similarity:.4f} (threshold: {self.face_threshold})")
+            logger.info(f"🎖️ Confidence: {confidence}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ Face verification failed: {e}")
             return {
                 'verified': False,
                 'similarity': 0.0,
                 'confidence': 'ERROR',
-                'result': 'VERIFICATION_ERROR',
-                'details': str(e)
+                'error': str(e),
+                'model_used': 'FastFaceVerification_Error'
             }
 
-def base64_to_image(base64_string):
-    """Convert base64 string to OpenCV image"""
-    try:
-        logger.info(f"🔄 Converting base64 image (length: {len(base64_string)})")
-        
-        # Remove data URL prefix if present
-        if base64_string.startswith('data:image'):
-            base64_string = base64_string.split(',')[1]
-            logger.info("✅ Removed data URL prefix")
-        
-        # Decode base64
-        image_data = base64.b64decode(base64_string)
-        logger.info(f"📥 Decoded {len(image_data)} bytes")
-        
-        image = Image.open(BytesIO(image_data))
-        logger.info(f"📐 Test image size: {image.size}, Mode: {image.mode}")
-        
-        # Convert to OpenCV format
-        opencv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        logger.info(f"🔄 Converted to OpenCV format: {opencv_image.shape}")
-        return opencv_image
-        
-    except Exception as e:
-        logger.error(f"❌ Base64 to image conversion error: {e}")
-        return None
-
-def url_to_image(image_url):
-    """Download image from URL and convert to OpenCV format"""
-    try:
-        logger.info(f"📥 Downloading image from URL: {image_url[:50]}...")
-        response = requests.get(image_url, timeout=10)
-        response.raise_for_status()
-        
-        logger.info(f"✅ Downloaded {len(response.content)} bytes")
-        image = Image.open(BytesIO(response.content))
-        logger.info(f"📐 Image size: {image.size}, Mode: {image.mode}")
-        
-        opencv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        logger.info(f"🔄 Converted to OpenCV format: {opencv_image.shape}")
-        return opencv_image
-        
-    except Exception as e:
-        logger.error(f"❌ URL to image conversion error: {e}")
-        return None
-
-@app.route('/verify-face', methods=['POST'])
-def verify_face():
-    """API endpoint for face verification using your exact face.py logic"""
-    try:
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({'error': 'No JSON data provided'}), 400
-            
-        stored_image_url = data.get('stored_image_url')
-        test_image_base64 = data.get('test_image_base64')
-        
-        if not stored_image_url or not test_image_base64:
-            return jsonify({'error': 'Both stored_image_url and test_image_base64 are required'}), 400
-        
-        logger.info(f"🔍 Processing face verification request...")
-        
-        # Load images
-        stored_image = url_to_image(stored_image_url)
-        test_image = base64_to_image(test_image_base64)
-        
-        if stored_image is None or test_image is None:
-            return jsonify({
-                'verified': False,
-                'similarity': 0.0,
-                'confidence': 'IMAGE_PROCESSING_ERROR',
-                'result': 'IMAGE_PROCESSING_ERROR',
-                'details': 'Failed to process one or both images'
-            }), 400
-        
-        # Initialize face matcher and verify
-        matcher = EnhancedFaceMatcher()
-        result = matcher.verify_faces(stored_image, test_image)
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"❌ Face verification API error: {e}")
-        return jsonify({
-            'verified': False,
-            'similarity': 0.0,
-            'confidence': 'API_ERROR',
-            'result': 'API_ERROR',
-            'details': str(e)
-        }), 500
+# Initialize the face verification system
+face_verifier = FastFaceVerification()
 
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
     return jsonify({
         'status': 'healthy',
-        'service': 'face_verification',
+        'service': 'face_verification_fixed',
+        'version': '2.0',
         'insightface_available': INSIGHTFACE_AVAILABLE,
-        'model_initialized': face_analysis is not None if INSIGHTFACE_AVAILABLE else True,
-        'fallback_mode': not INSIGHTFACE_AVAILABLE
+        'opencv_available': face_verifier.cv2_cascade is not None,
+        'thresholds': {
+            'face_threshold': face_verifier.face_threshold,
+            'min_face_size': face_verifier.min_face_size
+        }
     })
 
+@app.route('/verify', methods=['POST'])
+def verify_face():
+    """Face verification endpoint"""
+    try:
+        data = request.json
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        stored_image_url = data.get('stored_image_url')
+        test_image_base64 = data.get('test_image_base64')
+        
+        if not stored_image_url or not test_image_base64:
+            return jsonify({'error': 'Missing stored_image_url or test_image_base64'}), 400
+        
+        logger.info(f"👤 Face verification request received")
+        logger.info(f"📥 Stored URL: {stored_image_url[:50]}...")
+        logger.info(f"📥 Test image: {len(test_image_base64)} chars")
+        
+        # Perform verification
+        result = face_verifier.verify_faces(stored_image_url, test_image_base64)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"❌ API error: {e}")
+        return jsonify({
+            'verified': False,
+            'similarity': 0.0,
+            'confidence': 'ERROR',
+            'error': str(e),
+            'model_used': 'FastFaceVerification_Error'
+        }), 500
+
 if __name__ == '__main__':
-    # Initialize the face model on startup
-    if initialize_face_model():
-        logger.info("🚀 Starting Face Verification Service on port 8001...")
-        logger.info("🔧 Note: To enable full InsightFace accuracy, install Microsoft C++ Build Tools")
-        logger.info("📋 Then run: pip install insightface")
-        app.run(host='0.0.0.0', port=8001, debug=False)
-    else:
-        logger.error("❌ Failed to start service - Model initialization failed")
+    logger.info("🚀 Starting Fixed Face Verification Service...")
+    logger.info(f"👤 Face threshold: {face_verifier.face_threshold}")
+    logger.info(f"🔍 InsightFace available: {INSIGHTFACE_AVAILABLE}")
+    logger.info(f"👁️ OpenCV cascade available: {face_verifier.cv2_cascade is not None}")
+    app.run(host='0.0.0.0', port=8001, debug=True)

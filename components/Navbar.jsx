@@ -17,12 +17,10 @@ export default function Navbar() {
   // Navigation items
   const navItems = [
     { name: "Dashboard", path: "/main" },
-    { name: "Jobs", path: "/jobs" },
+    { name: "Jobs", path: "/job-search" },
     { name: "Courses", path: "/courses" },
+    { name: "Roadmap", path: "/roadmap" },
     { name: "Events", path: "/events" },
-    { name: "Projects", path: "/projects" },
-    { name: "Quizzes", path: "/quizzes" },
-    { name: "Resources", path: "/resources" },
   ];
   
   // Handle scroll effect
@@ -151,15 +149,8 @@ export default function Navbar() {
               ))}
             </ul>
 
-            {/* Host Button & User Profile Section (Desktop) */}
+            {/* User Profile Section (Desktop) */}
             <div className="flex items-center ml-8 space-x-4">
-              {/* Host Button */}
-              <Link href="/host/login">
-                <button className="bg-white text-blue-600 border border-blue-600 px-4 py-2 rounded-lg font-medium hover:bg-blue-50 transition-colors duration-200">
-                  Host
-                </button>
-              </Link>
-
               {/* User Profile Dropdown */}
               <div className="relative" ref={profileMenuRef}>
                 <button 

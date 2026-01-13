@@ -128,7 +128,7 @@ async function callFlaskFaceService(storedImageUrl, testImageBase64) {
     console.log('📸 Stored image URL:', storedImageUrl.substring(0, 50) + '...');
     console.log('📸 Test image size:', testImageBase64.length);
     
-    const flaskUrl = 'http://localhost:8001/verify-face';
+    const flaskUrl = 'http://localhost:8001/verify';
     
     const response = await fetch(flaskUrl, {
       method: 'POST',

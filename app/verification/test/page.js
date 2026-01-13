@@ -223,6 +223,16 @@ export default function VerificationTest() {
       }
 
       const data = await response.json();
+      
+      console.log('🎵 VOICE VERIFICATION RESULT:', {
+        verified: data.verified,
+        confidence: data.confidence,
+        ensembleScore: data.ensembleScore,
+        result: data.result,
+        modelResults: data.modelResults,
+        fullResponse: data
+      });
+      
       setVoiceVerificationResult(data);
 
       // Calculate overall result
@@ -232,7 +242,7 @@ export default function VerificationTest() {
       setOverallResult({
         verified: faceVerified && voiceVerified,
         faceScore: faceVerificationResult?.similarity || 0,
-        voiceScore: typeof data.confidence === 'number' ? data.confidence : (data.ensembleScore || 0),
+        voiceScore: data.ensembleScore || 0, // Use ensembleScore (0-1 range)
         details: {
           face: faceVerificationResult,
           voice: data

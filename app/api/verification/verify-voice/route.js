@@ -115,7 +115,7 @@ async function callPythonVoiceVerification(storedAudioUrl, testAudioBase64, orig
     console.log('🎵 Stored audio URL:', storedAudioUrl.substring(0, 50) + '...');
     console.log('🎵 Test audio size:', testAudioBase64.length);
     
-    const flaskUrl = 'http://localhost:8003/verify-voice';
+    const flaskUrl = 'http://localhost:8003/verify';
     
     const response = await fetch(flaskUrl, {
       method: 'POST',
@@ -123,8 +123,8 @@ async function callPythonVoiceVerification(storedAudioUrl, testAudioBase64, orig
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        stored_audio_url: storedAudioUrl,
-        test_audio_base64: testAudioBase64,
+        stored_voice_url: storedAudioUrl,
+        test_voice_base64: testAudioBase64,
         original_text: originalText || '',
         current_text: currentText || ''
       }),
@@ -140,14 +140,18 @@ async function callPythonVoiceVerification(storedAudioUrl, testAudioBase64, orig
     const result = await response.json();
     console.log('✅ Flask voice verification result:', {
       verified: result.verified,
+      similarity: result.similarity,
       ensembleScore: result.ensembleScore,
       confidence: result.confidence,
       result: result.result
     });
     
+    // Map Python's 'similarity' to 'ensembleScore' for consistent API
+    const ensembleScore = result.ensembleScore || result.similarity || 0;
+    
     return {
       verified: result.verified || false,
-      ensembleScore: result.ensembleScore || 0,
+      ensembleScore: ensembleScore,
       confidence: result.confidence || 'Unknown',
       result: result.result || 'UNKNOWN',
       details: result.details || 'No details provided',
