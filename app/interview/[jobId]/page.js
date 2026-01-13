@@ -34,30 +34,10 @@ export default function VoiceInterviewPage() {
   const [currentSpeaker, setCurrentSpeaker] = useState(null); // 'assistant' or 'user'
   const [partialTranscript, setPartialTranscript] = useState('');
 
-  // Real-time Proctoring States with enhanced tracking
-  const [proctorData, setProctorData] = useState({
-    faceDetected: null,
-    faceVerified: null,
-    voiceVerified: null,
-    userName: null,
-    boundingBox: null,
-    lastUpdate: null,
-    lastVoiceUpdate: null,
-    lastResult: null,
-    lastVoiceResult: null,
-    detectionStatus: 'DISABLED' // Real-time proctoring disabled
-  });
-  const [proctorEnabled, setProctorEnabled] = useState(false); // Always false
-
   const vapiInitialized = useRef(false);
   const messagesRef = useRef([]); // Use ref to avoid closure issues in event handlers
   const transcriptEndRef = useRef(null);
   const aiVideoRef = useRef(null);
-  const proctorIntervalRef = useRef(null);
-  const canvasRef = useRef(null);
-  const lastVoiceCheckRef = useRef(0);
-  const audioRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
   const isCallActiveRef = useRef(false); // Use ref to access in event handlers
   // Get assistant ID from URL params or job data
   const urlAssistantId = searchParams.get('assistant');
@@ -115,263 +95,7 @@ export default function VoiceInterviewPage() {
     }
   }, [isCallActive, isCallEnded, aiVideoLoaded, currentSpeaker]);
 
-  // Real-time face verification with proper error handling
-  const performRealTimeFaceCheck = async (videoElement) => {
-    try {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-
-      // Reduce image size for faster processing while maintaining quality
-      const maxSize = 640;
-      const scale = Math.min(maxSize / videoElement.videoWidth, maxSize / videoElement.videoHeight, 1);
-      canvas.width = videoElement.videoWidth * scale;
-      canvas.height = videoElement.videoHeight * scale;
-
-      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-
-      // Convert to blob and then to base64
-      return new Promise((resolve) => {
-        canvas.toBlob(async (blob) => {
-          const reader = new FileReader();
-          reader.onload = async () => {
-            const base64Image = reader.result;
-
-            try {
-              console.log('🔍 Making real-time face verification API call...');
-
-              // Use optimized real-time face detection endpoint
-              const response = await fetch('/api/verification/verify-face-realtime', {
-                method: 'POST',
-                credentials: 'include',
-                headers: {
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                  testImageBase64: base64Image,
-                  realtime: true,
-                  fastMode: true
-                })
-              });
-
-              console.log('🔍 Face API response status:', response.status);
-
-              // Handle API errors gracefully - don't throw, just return failed verification
-              if (!response.ok) {
-                console.warn('🔍 Face API failed:', response.status, response.statusText);
-                const errorText = await response.text();
-                console.warn('🔍 Error details:', errorText);
-
-                // Return failed verification instead of throwing
-                resolve({
-                  verified: false,
-                  error: `API Error ${response.status}`,
-                  bbox: null,
-                  confidence: 'API_ERROR',
-                  result: 'API_ERROR'
-                });
-                return;
-              }
-
-              const result = await response.json();
-              console.log('🔍 Real-time face check RESULT:', {
-                verified: result.verified,
-                similarity: result.similarity,
-                confidence: result.confidence,
-                result: result.result,
-                hasBoundingBox: !!(result.bbox || result.face2_bbox)
-              });
-
-              // Handle different response types gracefully
-              if (!result.success && result.error) {
-                console.log('🔍 Face verification failed (expected for different person):', result.error);
-                // This is normal - just means different person detected
-              }
-
-              // Ensure we have Flask response
-              if (!result.model_used || !result.model_used.includes('InsightFace')) {
-                console.warn('⚠️ Response may not be from Flask InsightFace service!');
-                console.warn('⚠️ Make sure Flask service is running: python python-services/face_service.py');
-              }
-
-              // Update proctor data with verification result
-              setProctorData(prev => {
-                // Extract bounding box from multiple possible field names
-                let boundingBox = result.bbox || result.face2_bbox || result.boundingBox ||
-                                  result.face_bbox || result.face1_bbox || result.box || result.coordinates;
-
-                // Check if bbox is nested in face2 object
-                if (!boundingBox && result.face2 && typeof result.face2 === 'object') {
-                  boundingBox = result.face2.bbox || result.face2.box || result.face2.coordinates;
-                }
-
-                // If still no bbox, check if face2 is an array
-                if (!boundingBox && result.face2 && Array.isArray(result.face2)) {
-                  boundingBox = result.face2;
-                }
-
-                // Create face detection result
-                const faceDetected = !!boundingBox;
-                const faceVerified = result.verified === true;
-
-                console.log('📦 Face detection update:', {
-                  faceDetected,
-                  faceVerified,
-                  hasBoundingBox: !!boundingBox,
-                  similarity: result.similarity,
-                  confidence: result.confidence
-                });
-
-                const newData = {
-                  ...prev,
-                  faceDetected: faceDetected,
-                  faceVerified: faceVerified,
-                  boundingBox: boundingBox,
-                  userName: faceVerified ? user?.name : null,
-                  lastUpdate: new Date().toISOString(),
-                  lastResult: {
-                    similarity: result.similarity,
-                    confidence: result.confidence,
-                    result: result.result,
-                    model_used: result.model_used
-                  }
-                };
-
-                return newData;
-              });
-
-              resolve(result);
-            } catch (error) {
-              console.warn('Real-time face check error:', error.message);
-
-              // Update proctor data to show no detection instead of error
-              setProctorData(prev => ({
-                ...prev,
-                faceDetected: false,
-                faceVerified: false,
-                boundingBox: null,
-                userName: null,
-                lastUpdate: new Date().toISOString(),
-                lastResult: {
-                  error: error.message,
-                  confidence: 'ERROR'
-                }
-              }));
-
-              resolve({ verified: false, error: error.message });
-            }
-          };
-          reader.readAsDataURL(blob);
-        }, 'image/jpeg', 0.8);
-      });
-    } catch (error) {
-      console.warn('Face capture error:', error.message);
-
-      // Update proctor data to show no detection
-      setProctorData(prev => ({
-        ...prev,
-        faceDetected: false,
-        faceVerified: false,
-        boundingBox: null,
-        userName: null,
-        lastUpdate: new Date().toISOString(),
-        lastResult: {
-          error: error.message,
-          confidence: 'ERROR'
-        }
-      }));
-
-      return { verified: false, error: error.message };
-    }
-  };
-
-  // Real-time voice verification during speech with proper error handling
-  const performRealTimeVoiceCheck = async (audioData) => {
-    try {
-      const formData = new FormData();
-      formData.append('testAudio', audioData, 'realtime-voice.wav');
-      formData.append('textRead', 'Real-time verification during interview');
-
-      console.log('🎵 Making real-time voice verification API call...');
-
-      const response = await fetch('/api/verification/verify-voice-realtime', {
-        method: 'POST',
-        credentials: 'include',
-        body: formData
-      });
-
-      console.log('🎵 Voice API response status:', response.status);
-
-      // Handle API errors gracefully - don't throw, just return failed verification
-      if (!response.ok) {
-        console.warn('🎵 Voice API failed:', response.status, response.statusText);
-        const errorText = await response.text();
-        console.warn('🎵 Error details:', errorText);
-
-        // Update proctor data to show voice check failed
-        setProctorData(prev => ({
-          ...prev,
-          voiceVerified: false,
-          lastVoiceUpdate: new Date().toISOString(),
-          lastVoiceResult: {
-            error: `API Error ${response.status}`,
-            confidence: 'API_ERROR'
-          }
-        }));
-
-        return {
-          verified: false,
-          error: `Voice API Error ${response.status}`,
-          ensembleScore: 0.0,
-          confidence: 'API_ERROR',
-          result: 'API_ERROR'
-        };
-      }
-
-      const result = await response.json();
-      console.log('🎵 Real-time voice check RESULT:', {
-        verified: result.verified,
-        ensembleScore: result.ensembleScore,
-        confidence: result.confidence,
-        result: result.result
-      });
-
-      // Handle verification failure gracefully
-      if (!result.success && result.error) {
-        console.log('🎵 Voice verification failed (expected for different voice):', result.error);
-        // This is normal - just means different voice detected
-      }
-
-      // Update proctor data with voice verification result
-      setProctorData(prev => ({
-        ...prev,
-        voiceVerified: result.verified === true,
-        lastVoiceUpdate: new Date().toISOString(),
-        lastVoiceResult: {
-          ensembleScore: result.ensembleScore,
-          confidence: result.confidence,
-          result: result.result,
-          details: result.details
-        }
-      }));
-
-      return result;
-    } catch (error) {
-      console.warn('Real-time voice check error:', error.message);
-
-      // Update proctor data to show voice detection error
-      setProctorData(prev => ({
-        ...prev,
-        voiceVerified: false,
-        lastVoiceUpdate: new Date().toISOString(),
-        lastVoiceResult: {
-          error: error.message,
-          confidence: 'ERROR'
-        }
-      }));
-
-      return { verified: false, error: error.message, ensembleScore: 0.0, confidence: 'ERROR' };
-    }
-  };
+  // Real-time verification functions removed - only pre-interview verification is used
 
   // Check if Flask services are running
   const checkFlaskServices = async () => {
@@ -415,42 +139,7 @@ export default function VoiceInterviewPage() {
     }
   };
 
-  // Start real-time proctoring - DISABLED
-  const startProctoring = async () => {
-    console.log('⚠️ Real-time proctoring is disabled');
-    return;
-  };
-
-  // Stop proctoring
-  const stopProctoring = () => {
-    console.log('🔍 Stopping real-time proctoring...');
-    if (proctorIntervalRef.current) {
-      clearInterval(proctorIntervalRef.current);
-      proctorIntervalRef.current = null;
-    }
-    setProctorEnabled(false);
-  };
-
-  // Auto-start proctoring when interview begins - DISABLED
-  useEffect(() => {
-    // Real-time proctoring disabled during interview
-    console.log("⚠️ Real-time proctoring is disabled");
-    
-    return () => {
-      if (proctorIntervalRef.current) {
-        clearInterval(proctorIntervalRef.current);
-      }
-      // Clean up audio recorder
-      if (audioRecorderRef.current) {
-        if (audioRecorderRef.current.state === 'recording') {
-          audioRecorderRef.current.stop();
-        }
-        if (audioRecorderRef.current.stream) {
-          audioRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-        }
-      }
-    };
-  }, [isCallActive]);
+  // Real-time proctoring removed - only pre-interview verification is used
 
   const checkVerificationStatus = async () => {
     try {
@@ -704,9 +393,6 @@ export default function VoiceInterviewPage() {
         isCallActiveRef.current = true; // Update ref for event handlers
         setLoading(false);
         setError(null);
-        
-        // Start real-time proctoring
-        startProctoring();
       });
       
       client.on('call-end', async () => {
@@ -715,9 +401,6 @@ export default function VoiceInterviewPage() {
         setIsCallActive(false);
         isCallActiveRef.current = false; // Update ref for event handlers
         setIsCallEnded(true);
-        
-        // Stop proctoring
-        stopProctoring();
         
         // Process transcript locally since webhook won't work on localhost
         try {
@@ -738,12 +421,7 @@ export default function VoiceInterviewPage() {
               body: JSON.stringify({
                 jobId: params.jobId,
                 messages: collectedMessages,
-                duration: callDuration,
-                // Proctoring data for reference (not used for scoring)
-                proctorData: {
-                  faceVerified: proctorData.faceVerified,
-                  voiceVerified: proctorData.voiceVerified
-                }
+                duration: callDuration
               })
             });
             
@@ -806,83 +484,6 @@ export default function VoiceInterviewPage() {
             // Store in both ref and state
             messagesRef.current = [...messagesRef.current, transcriptMessage];
             setTranscriptMessages(prev => [...prev, transcriptMessage]);
-            
-            // VOICE VERIFICATION: Check voice when user speaks
-            if (role === 'user' && !voiceRecordingInProgress && isCallActiveRef.current) {
-              const now = Date.now();
-              const timeSinceLastCheck = now - lastVoiceCheck;
-              
-              console.log('🎵 Voice check trigger - Time since last check:', Math.round(timeSinceLastCheck / 1000), 'seconds');
-              
-              // Check voice every 5 seconds for real-time detection
-              if (timeSinceLastCheck >= 5000) {
-                lastVoiceCheck = now;
-                voiceRecordingInProgress = true;
-                console.log('🎤🎤🎤 USER FINISHED SPEAKING - STARTING VOICE RECORDING FOR VERIFICATION 🎤🎤🎤');
-
-                try {
-                  const stream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: {
-                      sampleRate: 16000,
-                      channelCount: 1,
-                      echoCancellation: true,
-                      noiseSuppression: true
-                    }
-                  });
-                  
-                  const recorder = new MediaRecorder(stream);
-                  const chunks = [];
-
-                  recorder.ondataavailable = (event) => {
-                    if (event.data.size > 0) {
-                      chunks.push(event.data);
-                      console.log('🎵 Audio chunk received, size:', event.data.size);
-                    }
-                  };
-                  
-                  recorder.onstop = async () => {
-                    const audioBlob = new Blob(chunks, { type: 'audio/webm' });
-                    console.log('🎵 User audio captured for voice verification, size:', audioBlob.size, 'bytes');
-                    
-                    // Only verify if we have enough audio data (reduced threshold)
-                    if (audioBlob.size > 3000) {
-                      console.log('🎵✅ Audio size sufficient - calling performRealTimeVoiceCheck...');
-                      await performRealTimeVoiceCheck(audioBlob);
-                    } else {
-                      console.log('🎵❌ Audio too small (', audioBlob.size, 'bytes), skipping voice verification');
-                    }
-                    
-                    stream.getTracks().forEach(track => track.stop());
-                    voiceRecordingInProgress = false;
-                  };
-
-                  recorder.start();
-                  console.log('🎵 MediaRecorder started, will record for 3 seconds...');
-                  
-                  // Record for 2 seconds for faster processing
-                  setTimeout(() => {
-                    if (recorder.state === 'recording') {
-                      console.log('🎵 Stopping recorder after 2 seconds...');
-                      recorder.stop();
-                    }
-                  }, 2000);
-                } catch (error) {
-                  console.error('🎵❌ Voice recording failed:', error);
-                  voiceRecordingInProgress = false;
-                }
-              } else {
-                console.log('🎵⏳ Skipping voice check - only', Math.round(timeSinceLastCheck / 1000), 'seconds since last check (need 8s)');
-              }
-            } else {
-              if (role === 'user') {
-                if (voiceRecordingInProgress) {
-                  console.log('🎵⏳ Voice recording already in progress, skipping...');
-                }
-                if (!isCallActiveRef.current) {
-                  console.log('🎵❌ Call not active, skipping voice verification');
-                }
-              }
-            }
           } else if (transcriptType === 'partial' && transcript) {
             // Ignore partial transcripts - only use final ones
             console.log('⏭️ Skipping partial transcript');
@@ -1409,7 +1010,6 @@ export default function VoiceInterviewPage() {
                   isVideoOn={videoOn}
                   isMicOn={micOn}
                   userName={user?.name}
-                  proctorData={proctorData}
                   isCallActive={isCallActive}
                 />
             </div>
@@ -1619,8 +1219,8 @@ export default function VoiceInterviewPage() {
   );
 }
 
-// User Webcam Component with Real-time Proctoring
-const UserWebcam = ({ isVideoOn, isMicOn, userName, proctorData, isCallActive }) => {
+// User Webcam Component
+const UserWebcam = ({ isVideoOn, isMicOn, userName, isCallActive }) => {
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
     const [cameraError, setCameraError] = useState(false);
@@ -1665,7 +1265,7 @@ const UserWebcam = ({ isVideoOn, isMicOn, userName, proctorData, isCallActive })
     useEffect(() => {
         // Real-time proctoring disabled
         return;
-    }, [proctorData, isCallActive]);
+    }, [isCallActive]);
 
     return (
         <div className="relative w-full h-full bg-gray-100 rounded-2xl overflow-hidden flex items-center justify-center border border-gray-300 shadow-lg">

@@ -182,7 +182,20 @@ export default function VerificationTest() {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
+      const text = await response.text();
+      if (!text || text.trim() === '') {
+        throw new Error('Empty response from server');
+      }
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+        console.error('Response text:', text);
+        throw new Error('Invalid JSON response from server');
+      }
+
       setFaceVerificationResult(data);
 
       if (data.success && data.verified) {
@@ -222,7 +235,19 @@ export default function VerificationTest() {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
+      const text = await response.text();
+      if (!text || text.trim() === '') {
+        throw new Error('Empty response from server');
+      }
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+        console.error('Response text:', text);
+        throw new Error('Invalid JSON response from server');
+      }
       
       console.log('🎵 VOICE VERIFICATION RESULT:', {
         verified: data.verified,

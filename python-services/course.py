@@ -213,5 +213,5 @@ async def generate_course_endpoint(req: GenerateRequest):
         return {"success": False, "error": str(e)}
 
 if __name__ == "__main__":
-    print("🚀 Course Generator running on port 8003")
-    uvicorn.run(app, host="0.0.0.0", port=8003)
+    print("🚀 Course Generator running on port 8005")
+    uvicorn.run(app, host="0.0.0.0", port=8005)

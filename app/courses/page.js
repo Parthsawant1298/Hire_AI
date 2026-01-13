@@ -26,7 +26,7 @@ const CoursesPage = () => {
   // Ref for the SCROLLABLE CONTAINER, not the end element
   const chatContainerRef = useRef(null);
 
-  const API_URL = "http://localhost:8003/generate-course";
+  const API_URL = "http://localhost:8005/generate-course";
 
   // FIXED: Scroll logic that only affects the chat container, not the window
   useEffect(() => {

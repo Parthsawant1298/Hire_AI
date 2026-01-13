@@ -182,7 +182,21 @@ async def job_matcher_node(state: JobMatcherState) -> Dict:
     
     try:
         content = response.content.replace("```json", "").replace("```", "").strip()
+        
+        # Check if content is empty or invalid
+        if not content:
+            print("❌ Empty response from AI")
+            return {"matched_jobs": []}
+        
+        print(f"📝 AI Response Length: {len(content)} chars")
+        print(f"📝 First 200 chars: {content[:200]}")
+        
         jobs_data = json.loads(content)
+        
+        # Ensure it's a list
+        if not isinstance(jobs_data, list):
+            print(f"❌ Response is not a list: {type(jobs_data)}")
+            return {"matched_jobs": []}
         
         # Double check links in python just in case
         valid_jobs = []
@@ -194,8 +208,12 @@ async def job_matcher_node(state: JobMatcherState) -> Dict:
         print(f"✅ Found {len(valid_jobs)} jobs with VALID links.")
         return {"matched_jobs": valid_jobs}
         
+    except json.JSONDecodeError as e:
+        print(f"❌ JSON Parse Error: {e}")
+        print(f"❌ Content that failed: {content[:500] if content else 'EMPTY'}")
+        return {"matched_jobs": []}
     except Exception as e:
-        print(f"❌ Parse Error: {e}")
+        print(f"❌ Unexpected Error: {e}")
         return {"matched_jobs": []}
 
 # --- GRAPH ---

@@ -178,7 +178,9 @@ export async function POST(request) {
       overallPerformance: feedback.overallPerformance || 0,
       detailedFeedback: feedback.detailedFeedback || 'Interview completed successfully.',
       proctorViolations: proctorViolations || [], // Add proctoring violations for HR review
-      interviewDuration: duration || 0
+      interviewDuration: duration || 0,
+      answeredQuestions: feedback.questionsAnswered || Math.floor(messages.length / 2),
+      totalQuestions: feedback.totalQuestions || 5
     };
     
     application.interviewCompletedAt = new Date();
