@@ -93,16 +93,19 @@ def github_scanner_node(state: AgentState):
         print(f"❌ GitHub Error: {e}")
         return {"github_skills": "Error scanning GitHub."}
 
+import datetime
+
 # --- NODE 2: STRATEGIC SEARCH ---
 def search_node(state: AgentState):
     inputs = state['inputs']
     user_query = state['query']
     github_context = state['github_skills']
     
-    print(f"📡 Searching Google for: {user_query}")
+    current_year = datetime.datetime.now().year
+    print(f"📡 Searching Google for: {user_query} ({current_year})")
     
-    # Build a smart query
-    search_term = f"{user_query} hackathon registration open"
+    # Build a smart query with YEAR to avoid old results
+    search_term = f"{user_query} hackathon upcoming {current_year} registration open"
     
     if inputs['location'] != "Online":
         search_term += f" in {inputs['location']}"
@@ -142,13 +145,17 @@ def matching_node(state: AgentState):
         return {"structured_events": []}
 
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
+        model="gemini-2.5-flash-lite",
         google_api_key=os.getenv("GOOGLE_API_KEY"),
         temperature=0
     )
 
+    current_date = datetime.datetime.now().strftime("%Y-%m-%d")
+
     prompt = f"""
     You are the "Hire AI" Hackathon Agent.
+    
+    CURRENT DATE: {current_date}
     
     USER PROFILE:
     - Goal: {inputs['goal']}
@@ -159,9 +166,10 @@ def matching_node(state: AgentState):
     {raw_text}
     
     TASK:
-    1. Extract REAL upcoming hackathons.
-    2. Score them (0-100).
-    3. Logic:
+    1. Extract REAL upcoming hackathons occurring AFTER {current_date}.
+    2. DISCARD any event that has already ended.
+    3. Score them (0-100).
+    4. Logic:
        - If Goal="Get Hired" and event mentions "hiring"/"jobs", Score = 90+.
        - If Goal="Prize Money" and prize > ${inputs['min_prize']}, Score = 90+.
        - If GitHub Skills match the event tech stack, Boost Score.
@@ -170,11 +178,10 @@ def matching_node(state: AgentState):
     [
       {{
         "title": "...",
-        "date": "...",
+        "date": "YYYY-MM-DD",
         "location": "...",
         "link": "...", 
-        "match_score": 95,
-        "match_reason": "Matches your Python skills from GitHub and offers hiring opportunities.",
+        "match_reason": "Matches your Python skills...",
         "tags": ["AI", "Hiring"]
       }}
     ]

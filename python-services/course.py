@@ -72,7 +72,7 @@ youtube_tool = Tool(
 
 # --- LLM ---
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash", # Using the requested model
+    model="gemini-2.5-flash-lite", # Using the requested model
     google_api_key=os.getenv("GOOGLE_API_KEY"),
     temperature=0.2
 )

@@ -3,23 +3,23 @@
 import React, { useState } from 'react';
 import Navbar from '@/components/Navbar'; // Using your existing Navbar
 import Footer from '@/components/Footer'; // Using your existing Footer
-import { 
-  Search, Github, Trophy, Briefcase, MapPin, 
-  Code2, Loader2, ExternalLink, SlidersHorizontal, Sparkles 
+import {
+  Search, Github, Trophy, Briefcase, MapPin,
+  Code2, Loader2, ExternalLink, SlidersHorizontal, Sparkles
 } from 'lucide-react';
 
 export default function HackathonPage() {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
-  
+
   // --- FILTER STATE ---
   const [filters, setFilters] = useState({
     location: "Online",
     goal: "Get Hired",
     github_username: "",
     min_prize: 0,
-    tech_stack: [] 
+    tech_stack: []
   });
 
   const handleSearch = async (e) => {
@@ -59,11 +59,11 @@ export default function HackathonPage() {
       <Navbar />
 
       <div className="flex flex-1 pt-20"> {/* PT-20 for fixed navbar */}
-        
+
         {/* --- LEFT SIDEBAR (FILTERS) --- */}
         <aside className="w-80 bg-white border-r border-slate-200 hidden lg:block h-[calc(100vh-80px)] overflow-y-auto sticky top-20">
           <div className="p-6 space-y-8">
-            
+
             {/* Header */}
             <div className="flex items-center gap-2 text-slate-800 font-bold text-lg border-b border-slate-100 pb-4">
               <SlidersHorizontal className="w-5 h-5 text-blue-600" />
@@ -76,12 +76,12 @@ export default function HackathonPage() {
               <div className="space-y-2">
                 {['Get Hired', 'Prize Money', 'Learning'].map((g) => (
                   <label key={g} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${filters.goal === g ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500' : 'bg-white border-slate-200 hover:border-slate-300'}`}>
-                    <input 
-                      type="radio" 
-                      name="goal" 
+                    <input
+                      type="radio"
+                      name="goal"
                       className="hidden"
-                      checked={filters.goal === g} 
-                      onChange={() => setFilters({...filters, goal: g})} 
+                      checked={filters.goal === g}
+                      onChange={() => setFilters({ ...filters, goal: g })}
                     />
                     {g === 'Get Hired' && <Briefcase size={16} className={filters.goal === g ? "text-blue-600" : "text-slate-400"} />}
                     {g === 'Prize Money' && <Trophy size={16} className={filters.goal === g ? "text-blue-600" : "text-slate-400"} />}
@@ -97,11 +97,11 @@ export default function HackathonPage() {
               <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 block">GitHub Scan</label>
               <div className="relative group">
                 <Github className="absolute left-3 top-3 text-slate-400 w-4 h-4 group-focus-within:text-blue-500 transition-colors" />
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   placeholder="username (e.g. parthsawant1298)"
                   value={filters.github_username}
-                  onChange={(e) => setFilters({...filters, github_username: e.target.value})}
+                  onChange={(e) => setFilters({ ...filters, github_username: e.target.value })}
                   className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                 />
               </div>
@@ -113,9 +113,9 @@ export default function HackathonPage() {
             {/* 3. Location */}
             <div>
               <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 block">Location</label>
-              <select 
+              <select
                 value={filters.location}
-                onChange={(e) => setFilters({...filters, location: e.target.value})}
+                onChange={(e) => setFilters({ ...filters, location: e.target.value })}
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
               >
                 <option value="Online">Global Online</option>
@@ -132,13 +132,13 @@ export default function HackathonPage() {
                 <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Min Prize</label>
                 <span className="text-xs font-mono text-blue-600 font-bold">₹{filters.min_prize.toLocaleString()}</span>
               </div>
-              <input 
-                type="range" 
-                min="0" 
-                max="50000" 
+              <input
+                type="range"
+                min="0"
+                max="50000"
                 step="500"
                 value={filters.min_prize}
-                onChange={(e) => setFilters({...filters, min_prize: parseInt(e.target.value)})}
+                onChange={(e) => setFilters({ ...filters, min_prize: parseInt(e.target.value) })}
                 className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
               />
             </div>
@@ -147,7 +147,7 @@ export default function HackathonPage() {
 
         {/* --- MAIN CONTENT --- */}
         <main className="flex-1 p-6 md:p-8 max-w-7xl mx-auto w-full">
-          
+
           {/* Header Area */}
           <div className="mb-8">
             <h1 className="text-3xl font-extrabold text-slate-900 mb-2">Find Your Next Challenge</h1>
@@ -203,20 +203,16 @@ export default function HackathonPage() {
 
             {results.map((hack, idx) => (
               <div key={idx} className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-lg hover:border-blue-200 transition-all duration-300 flex flex-col md:flex-row gap-6 group">
-                
-                {/* Score Badge */}
-                <div className="flex flex-col items-center justify-center bg-blue-50 w-full md:w-24 h-24 rounded-2xl flex-shrink-0 border border-blue-100 group-hover:bg-blue-600 group-hover:border-blue-600 transition-colors">
-                  <span className="text-3xl font-bold text-blue-700 group-hover:text-white">{hack.match_score}</span>
-                  <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wide group-hover:text-blue-100">Match</span>
-                </div>
+
+                {/* Score Badge Removed */}
 
                 {/* Content */}
                 <div className="flex-1 min-w-0">
                   <div className="flex justify-between items-start mb-2">
                     <h3 className="text-xl font-bold text-slate-900 truncate pr-4">{hack.title}</h3>
-                    <a 
-                      href={hack.link} 
-                      target="_blank" 
+                    <a
+                      href={hack.link}
+                      target="_blank"
                       rel="noreferrer"
                       className="text-slate-400 hover:text-blue-600 transition-colors"
                     >
@@ -259,7 +255,7 @@ export default function HackathonPage() {
 
         </main>
       </div>
-      
+
       <Footer />
     </div>
   );

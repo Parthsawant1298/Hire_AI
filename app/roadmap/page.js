@@ -3,9 +3,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
-import { 
-  CheckCircle2, Circle, ArrowRight, 
-  BookOpen, Video, FileText, ChevronDown, 
+import {
+  CheckCircle2, Circle, ArrowRight,
+  BookOpen, Video, FileText, ChevronDown,
   ChevronUp, Loader2, Trophy, Search
 } from 'lucide-react';
 
@@ -15,7 +15,7 @@ const RoadmapPage = () => {
   const [roadmap, setRoadmap] = useState(null);
   const [completedSteps, setCompletedSteps] = useState(new Set());
   const [expandedPhases, setExpandedPhases] = useState(new Set());
-  
+
   const resultsRef = useRef(null);
 
   // Load progress from local storage
@@ -124,7 +124,7 @@ const RoadmapPage = () => {
         {/* Roadmap Content */}
         {roadmap && (
           <div ref={resultsRef} className="max-w-4xl mx-auto px-4 sm:px-6">
-            
+
             {/* Progress Header */}
             <div className="sticky top-20 z-30 bg-white/90 backdrop-blur-md border-b border-slate-100 pb-4 mb-8">
               <div className="flex items-center justify-between mb-2">
@@ -132,7 +132,7 @@ const RoadmapPage = () => {
                 <span className="text-sm font-medium text-slate-600">{progress}% Complete</span>
               </div>
               <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                <div 
+                <div
                   className="h-full bg-green-500 transition-all duration-500 ease-out rounded-full"
                   style={{ width: `${progress}%` }}
                 />
@@ -142,9 +142,9 @@ const RoadmapPage = () => {
             <div className="space-y-6">
               {roadmap.phases.map((phase, phaseIdx) => (
                 <div key={phaseIdx} className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm">
-                  
+
                   {/* Phase Header */}
-                  <button 
+                  <button
                     onClick={() => togglePhase(phaseIdx)}
                     className="w-full flex items-center justify-between p-5 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
                   >
@@ -169,20 +169,18 @@ const RoadmapPage = () => {
                         const isCompleted = completedSteps.has(stepId);
 
                         return (
-                          <div 
-                            key={stepIdx} 
-                            className={`relative pl-4 border-l-2 transition-colors ${
-                              isCompleted ? 'border-green-500' : 'border-slate-200'
-                            }`}
+                          <div
+                            key={stepIdx}
+                            className={`relative pl-4 border-l-2 transition-colors ${isCompleted ? 'border-green-500' : 'border-slate-200'
+                              }`}
                           >
                             <div className="flex items-start gap-4">
-                              
+
                               {/* Checkbox */}
                               <button
                                 onClick={() => toggleStep(stepId)}
-                                className={`mt-1 flex-shrink-0 transition-colors ${
-                                  isCompleted ? 'text-green-500' : 'text-slate-300 hover:text-slate-400'
-                                }`}
+                                className={`mt-1 flex-shrink-0 transition-colors ${isCompleted ? 'text-green-500' : 'text-slate-300 hover:text-slate-400'
+                                  }`}
                               >
                                 {isCompleted ? (
                                   <CheckCircle2 className="h-6 w-6" />
@@ -193,13 +191,12 @@ const RoadmapPage = () => {
 
                               <div className="flex-1">
                                 <div className="flex items-baseline justify-between">
-                                  <h4 className={`text-base font-semibold ${
-                                    isCompleted ? 'text-slate-500 line-through' : 'text-slate-900'
-                                  }`}>
+                                  <h4 className={`text-base font-semibold ${isCompleted ? 'text-slate-500 line-through' : 'text-slate-900'
+                                    }`}>
                                     {step.title}
                                   </h4>
                                 </div>
-                                
+
                                 <p className="text-sm text-slate-600 mt-1 mb-3 leading-relaxed">
                                   {step.details}
                                 </p>

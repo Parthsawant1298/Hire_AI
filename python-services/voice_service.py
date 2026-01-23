@@ -58,7 +58,7 @@ CORS(app)
 class ImprovedVoiceVerification:
     def __init__(self):
         # NEW TECH: Resemblyzer allows for high accuracy, so we use a standard high threshold
-        self.voice_threshold = 0.80 
+        self.voice_threshold = 0.50
         self.high_confidence_threshold = 0.85
         self.min_duration = 1.0  # Deep learning models can work with shorter audio
         
