@@ -244,7 +244,7 @@ export default function VoiceInterviewPage() {
 
           // Init
           faceDetection = new FaceDetection({
-            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection@0.4/${file}`
           });
           faceDetection.setOptions({ model: 'short', minDetectionConfidence: 0.5 });
           faceDetection.onResults(onResults);
@@ -253,7 +253,7 @@ export default function VoiceInterviewPage() {
           let lastTime = 0;
           const processFrame = async (time) => {
             if (videoRef.current && !videoRef.current.paused && !videoRef.current.ended) {
-              if (time - lastTime >= 100) { // 10 FPS
+              if (time - lastTime >= 250) { // 4 FPS (Optimized for Voice Performance)
                 try {
                   await faceDetection.send({ image: videoRef.current });
                   lastTime = time;
