@@ -14,7 +14,7 @@ import {
 // ============================================================
 // CONFIG
 // ============================================================
-const API_BASE = "http://localhost:8002";
+const API_BASE = "/api/ai";
 
 const JOB_TYPES = ["Any", "Remote", "On-site", "Hybrid"];
 

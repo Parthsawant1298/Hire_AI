@@ -115,9 +115,11 @@ async function callPythonVoiceVerification(storedAudioUrl, testAudioBase64, orig
     console.log('🎵 Stored audio URL:', storedAudioUrl.substring(0, 50) + '...');
     console.log('🎵 Test audio size:', testAudioBase64.length);
     
-    const flaskUrl = 'http://localhost:8003/verify';
+    // Support unified gateway URL from environment variables
+    const gatewayUrl = process.env.AI_GATEWAY_URL || 'http://localhost:8080';
+    const flaskUrl = `${gatewayUrl}/verify/voice`;
     
-    const response = await fetch(flaskUrl, {
+    console.log(`📡 Calling AI Gateway: ${flaskUrl}`);
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

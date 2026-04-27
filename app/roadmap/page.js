@@ -11,7 +11,7 @@ import {
   Rocket, BarChart3, Brain, AlertCircle
 } from "lucide-react";
 
-const API_BASE = "http://localhost:8004";
+const API_BASE = "/api/ai";
 
 // Safe storage (no crash on SSR)
 const store = {

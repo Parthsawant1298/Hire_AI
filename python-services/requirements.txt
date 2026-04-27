@@ -32,6 +32,20 @@ speechbrain>=0.5.0
 python-speech-features==0.6
 resemblyzer
 
+# Resume Optimizer & Agents
+pdfplumber==0.10.3
+xhtml2pdf==0.2.11
+jinja2==3.1.2
+python-multipart==0.0.6
+fastapi==0.109.0
+uvicorn==0.27.0
+langchain
+langchain-groq
+langchain-community
+langgraph
+motor
+pymongo
+python-dotenv
 # InsightFace (install separately with specific commands)
 # Will be installed via pip install insightface --no-deps
 # Then install onnxruntime separately

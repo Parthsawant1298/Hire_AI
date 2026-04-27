@@ -25,10 +25,11 @@ const CoursesPage = () => {
 
   const chatContainerRef = useRef(null);
 
-  const CHAT_API_URL = "http://localhost:8005/chat";
-  const COURSE_API_URL = "http://localhost:8005/generate-course";
-  const GET_COURSES_API_URL = "http://localhost:8005/courses";
-  const DELETE_COURSE_API_URL = "http://localhost:8005/courses";
+  const API_BASE = "/api/ai";
+  const CHAT_API_URL = `${API_BASE}/chat`;
+  const COURSE_API_URL = `${API_BASE}/generate-course`;
+  const GET_COURSES_API_URL = `${API_BASE}/courses`;
+  const DELETE_COURSE_API_URL = `${API_BASE}/courses`;
 
   useEffect(() => {
     if (chatContainerRef.current) {

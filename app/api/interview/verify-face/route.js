@@ -4,8 +4,12 @@ export async function POST(req) {
   try {
     const body = await req.json();
     
+    // Support unified gateway URL from environment variables
+    const gatewayUrl = process.env.AI_GATEWAY_URL || 'http://localhost:8080';
+    const flaskUrl = `${gatewayUrl}/verify/face`;
+
     // Forward to Python service
-    const response = await fetch('http://localhost:8001/verify', {
+    const response = await fetch(flaskUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

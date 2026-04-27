@@ -373,17 +373,17 @@ class RoadmapRequest(BaseModel):
     topic: str
     level: str = "Beginner"
 
-@app.post("/generate-roadmap")
-async def generate(req: RoadmapRequest):
-    raw   = req.topic.strip()
-    level = req.level if req.level in ("Beginner","Intermediate","Advanced") else "Beginner"
+# ============================================================
+# EXPORT FOR UNIFIED GATEWAY
+# ============================================================
+async def generate_roadmap(topic: str, level: str = "Beginner"):
+    """Core logic wrapper for the Unified AI Gateway."""
+    raw = topic.strip()
+    level = level if level in ("Beginner","Intermediate","Advanced") else "Beginner"
 
     if not raw:
         return {"success": False, "error": "Please enter what you want to learn"}
-    if len(raw) > 500:
-        return {"success": False, "error": "Input too long"}
 
-    print(f"\n{'='*50}\nINPUT: '{raw}' | LEVEL: {level}\n{'='*50}")
     try:
         result  = await graph.ainvoke({
             "raw_input": raw, "level": level,
@@ -404,8 +404,11 @@ async def generate(req: RoadmapRequest):
             }
         }
     except Exception as e:
-        import traceback; traceback.print_exc()
         return {"success": False, "error": str(e)}
+
+@app.post("/generate-roadmap")
+async def generate(req: RoadmapRequest):
+    return await generate_roadmap(req.topic, req.level)
 
 @app.get("/health")
 async def health():

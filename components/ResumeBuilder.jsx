@@ -8,7 +8,7 @@ import {
   Briefcase, Star
 } from "lucide-react";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = "/api/ai";
 
 // ─── pipeline steps shown during processing ───────────────
 const STEPS = [

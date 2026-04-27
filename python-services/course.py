@@ -350,217 +350,127 @@ class CourseResponse(BaseModel):
 
 
 # ============================================================
-# --- ENDPOINTS ---
+# EXPORT FOR UNIFIED GATEWAY
 # ============================================================
 
-@app.post("/chat")
-async def chat_endpoint(req: ChatRequest):
-    """LLM-powered chat — understands any language, Hinglish, any topic."""
+async def handle_chat(message: str, conversation_history: List[Dict] = []):
+    """Core chat logic wrapper."""
     try:
         messages = [SystemMessage(content=INTENT_SYSTEM_PROMPT)]
-
-        # Include last 4 turns for context
-        for turn in req.conversation_history[-4:]:
+        for turn in conversation_history[-4:]:
             if turn.get("role") == "user":
                 messages.append(HumanMessage(content=turn.get("content", "")))
-
-        messages.append(HumanMessage(content=req.message))
+        messages.append(HumanMessage(content=message))
 
         response = await llm.ainvoke(messages)
-
         content = response.content.replace("```json", "").replace("```", "").strip()
         parsed = json.loads(content)
 
-        intent    = parsed.get("intent", "unclear")
-        topic     = parsed.get("topic")
+        intent = parsed.get("intent", "unclear")
+        topic = parsed.get("topic")
         difficulty = parsed.get("difficulty", "Beginner")
-        reply     = parsed.get("reply")
+        reply = parsed.get("reply")
 
         if intent == "course_request" and topic:
             return {
                 "success": True,
-                "response": f"🚀 Perfect! Creating a complete **{topic}** course for you right now. Finding the best lessons and video tutorials...",
+                "response": f"🚀 Perfect! Creating a complete **{topic}** course for you right now...",
                 "type": "course_generation",
                 "should_generate": True,
                 "topic": topic,
                 "difficulty": difficulty or "Beginner"
             }
 
-        return {
-            "success": True,
-            "response": reply or "Tell me any topic or skill you'd like to master and I'll build a full course for you! 🎓",
-            "type": intent
-        }
-
-    except json.JSONDecodeError as e:
-        print(f"❌ JSON Parse Error in /chat: {e}")
-        try:
-            fallback = await llm.ainvoke([
-                SystemMessage(content="You are a friendly AI course assistant. Reply helpfully and briefly."),
-                HumanMessage(content=req.message)
-            ])
-            return {"success": True, "response": fallback.content, "type": "fallback"}
-        except Exception:
-            return {
-                "success": True,
-                "response": "Hey! Tell me what you'd like to learn and I'll create a full course for you! 🎓",
-                "type": "fallback"
-            }
-
+        return {"success": True, "response": reply or "What would you like to learn?", "type": intent}
     except Exception as e:
-        print(f"❌ Chat Error: {e}")
         return {"success": False, "error": str(e)}
 
-
-@app.post("/generate-course")
-async def generate_course_endpoint(req: GenerateRequest, request: Request):
-    """Runs the full LangGraph pipeline: syllabus design → video curation → storage."""
+async def generate_course_api(topic: str, difficulty: str = "Beginner", user_id: str = None):
+    """Core course generation logic wrapper."""
     try:
-        # Get authenticated user
-        user = await get_user_from_request(request)
-        if not user:
-            raise HTTPException(status_code=401, detail="Authentication required. Please log in.")
+        if not user_id:
+            return {"success": False, "error": "User ID required"}
 
         initial_state = {
-            "topic": req.topic,
-            "difficulty": req.difficulty,
-            "duration": req.duration,
-            "syllabus": [],
-            "final_course": {}
+            "topic": topic, "difficulty": difficulty, "duration": "Comprehensive",
+            "syllabus": [], "final_course": {}
         }
 
         result = await course_graph.ainvoke(initial_state)
         course_data = result["final_course"]
 
-        # Generate unique course ID
-        import uuid
-        course_id = str(uuid.uuid4())
+        # Extract thumbnail
+        thumb = ""
+        if course_data.get("lessons"):
+            thumb = course_data["lessons"][0].get("thumbnail", "")
 
-        # Extract thumbnail from first lesson
-        first_lesson_thumbnail = ""
-        if course_data.get("lessons") and len(course_data["lessons"]) > 0:
-            first_lesson_thumbnail = course_data["lessons"][0].get("thumbnail", "")
-
-        print(f"🎓 Course: {course_data.get('title', 'Unknown')}")
-        print(f"📚 Lessons: {len(course_data.get('lessons', []))}")
-        print(f"🖼️ Course Thumbnail: {first_lesson_thumbnail}")
-
-        # Prepare course document for storage
         from bson import ObjectId
-
         course_doc = {
-            "title": course_data.get("title", f"Complete {req.topic} Course"),
-            "description": course_data.get("description", f"A comprehensive course on {req.topic}"),
-            "topic": req.topic,
-            "difficulty": req.difficulty,
-            "duration": req.duration,
-            "thumbnail": first_lesson_thumbnail,
-            "totalLessons": course_data.get("total_lessons", len(course_data.get("lessons", []))),
+            "title": course_data.get("title", f"Complete {topic} Course"),
+            "description": course_data.get("description", ""),
+            "topic": topic, "difficulty": difficulty, "duration": "Comprehensive",
+            "thumbnail": thumb, "totalLessons": len(course_data.get("lessons", [])),
             "lessons": course_data.get("lessons", []),
-            "userId": ObjectId(user["id"]),
+            "userId": ObjectId(user_id),
             "createdAt": datetime.now(timezone.utc),
         }
 
-        # Store in Database
-        result = await courses_collection.insert_one(course_doc)
-
-        # Prepare response with string IDs
+        db_result = await courses_collection.insert_one(course_doc)
+        
         response_course = {
-            "id": str(result.inserted_id),
+            "id": str(db_result.inserted_id),
             "title": course_doc["title"],
-            "description": course_doc["description"],
-            "topic": course_doc["topic"],
-            "difficulty": course_doc["difficulty"],
-            "duration": course_doc["duration"],
-            "thumbnail": course_doc["thumbnail"],
-            "totalLessons": course_doc["totalLessons"],
+            "thumbnail": thumb,
             "lessons": course_doc["lessons"],
-            "userId": user["id"],
-            "createdAt": course_doc["createdAt"].isoformat(),
+            "userId": user_id
         }
 
-        course_data["thumbnail"] = first_lesson_thumbnail
-
         return {"success": True, "course": course_data, "saved_course": response_course}
-
-    except HTTPException:
-        raise
     except Exception as e:
-        print(f"❌ Error: {e}")
         return {"success": False, "error": str(e)}
 
+async def get_all_courses(user_id: str = None):
+    """Core retrieval logic wrapper."""
+    if not user_id: return {"success": False, "error": "User ID required"}
+    from bson import ObjectId
+    cursor = courses_collection.find({"userId": ObjectId(user_id)}).sort("createdAt", -1)
+    courses = await cursor.to_list(length=100)
+    return {
+        "success": True,
+        "courses": [{
+            "id": str(c["_id"]), "title": c.get("title"), "topic": c.get("topic"),
+            "thumbnail": c.get("thumbnail"), "lessons": c.get("lessons", [])
+        } for c in courses]
+    }
+
+async def delete_course_api(course_id: str, user_id: str = None):
+    """Core deletion logic wrapper."""
+    if not user_id or not course_id: return {"success": False, "error": "Missing info"}
+    from bson import ObjectId
+    result = await courses_collection.delete_one({"_id": ObjectId(course_id), "userId": ObjectId(user_id)})
+    return {"success": True if result.deleted_count > 0 else False}
+
+@app.post("/chat")
+async def chat_endpoint(req: ChatRequest):
+    return await handle_chat(req.message, req.conversation_history)
+
+@app.post("/generate-course")
+async def generate_course_endpoint(req: GenerateRequest, request: Request):
+    user = await get_user_from_request(request)
+    if not user: raise HTTPException(status_code=401)
+    return await generate_course_api(req.topic, req.difficulty, user["id"])
 
 @app.get("/courses")
 async def get_user_courses(request: Request):
-    """Get all courses for the authenticated user."""
-    try:
-        # Get authenticated user
-        user = await get_user_from_request(request)
-        if not user:
-            raise HTTPException(status_code=401, detail="Authentication required. Please log in.")
-
-        # Get user's courses from database
-        from bson import ObjectId
-        cursor = courses_collection.find({"userId": ObjectId(user["id"])}).sort("createdAt", -1)
-        user_courses = await cursor.to_list(length=100)
-
-        # Format courses for JSON response
-        formatted_courses = []
-        for course in user_courses:
-            formatted_course = {
-                "id": str(course["_id"]),
-                "title": course.get("title", ""),
-                "description": course.get("description", ""),
-                "topic": course.get("topic", ""),
-                "difficulty": course.get("difficulty", "Beginner"),
-                "duration": course.get("duration", "2 Hours"),
-                "thumbnail": course.get("thumbnail", ""),
-                "totalLessons": course.get("totalLessons", len(course.get("lessons", []))),
-                "lessons": course.get("lessons", []),
-                "createdAt": course.get("createdAt", datetime.now()).isoformat() if isinstance(course.get("createdAt"), datetime) else course.get("createdAt", datetime.now().isoformat()),
-                "userId": str(course.get("userId", ""))
-            }
-            formatted_courses.append(formatted_course)
-
-        return {"success": True, "courses": formatted_courses}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"❌ Error fetching courses: {e}")
-        return {"success": False, "error": str(e)}
-
+    user = await get_user_from_request(request)
+    if not user: raise HTTPException(status_code=401)
+    return await get_all_courses(user["id"])
 
 @app.delete("/courses/{course_id}")
 async def delete_course(course_id: str, request: Request):
-    """Delete a specific course for the authenticated user."""
-    try:
-        # Get authenticated user
-        user = await get_user_from_request(request)
-        if not user:
-            raise HTTPException(status_code=401, detail="Authentication required. Please log in.")
-
-        # Find and remove the course
-        from bson import ObjectId
-
-        # Validate course_id format
-        try:
-            course_obj_id = ObjectId(course_id)
-        except:
-            raise HTTPException(status_code=400, detail="Invalid course ID format.")
-
-        result = await courses_collection.delete_one({"_id": course_obj_id, "userId": ObjectId(user["id"])})
-
-        if result.deleted_count == 0:
-            raise HTTPException(status_code=404, detail="Course not found or you don't have permission to delete it.")
-
-        return {"success": True, "message": "Course deleted successfully"}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"❌ Error deleting course: {e}")
-        return {"success": False, "error": str(e)}
+    user = await get_user_from_request(request)
+    if not user: raise HTTPException(status_code=401)
+    return await delete_course_api(course_id, user["id"])
 
 
 if __name__ == "__main__":

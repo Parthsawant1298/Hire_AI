@@ -128,9 +128,11 @@ async function callFlaskFaceService(storedImageUrl, testImageBase64) {
     console.log('📸 Stored image URL:', storedImageUrl.substring(0, 50) + '...');
     console.log('📸 Test image size:', testImageBase64.length);
     
-    const flaskUrl = 'http://localhost:8001/verify';
+    // Support unified gateway URL from environment variables
+    const gatewayUrl = process.env.AI_GATEWAY_URL || 'http://localhost:8080';
+    const flaskUrl = `${gatewayUrl}/verify/face`;
     
-    const response = await fetch(flaskUrl, {
+    console.log(`📡 Calling AI Gateway: ${flaskUrl}`);
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
