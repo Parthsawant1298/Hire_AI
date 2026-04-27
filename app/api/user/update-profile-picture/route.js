@@ -5,22 +5,8 @@ import connectDB from '@/lib/mongodb';
 import User from '@/models/user';
 import { v2 as cloudinary } from 'cloudinary';
 
-// Validate environment variables on startup
-const requiredEnvVars = ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'];
-const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
+// Configuration and validation are handled inside the handler to prevent build failures
 
-if (missingEnvVars.length > 0) {
-  console.error('Missing required environment variables:', missingEnvVars);
-  throw new Error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
-}
-
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-  secure: true // Always use HTTPS
-});
 
 // Constants
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -107,6 +93,25 @@ const validateFile = (file) => {
 
 export async function POST(request) {
   try {
+    // Validate environment variables at runtime
+    const requiredEnvVars = ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'];
+    const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
+    
+    if (missingEnvVars.length > 0) {
+      return NextResponse.json(
+        { error: 'Cloudinary configuration is missing. Please contact support.' },
+        { status: 500 }
+      );
+    }
+
+    // Configure Cloudinary at runtime
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+      secure: true
+    });
+
     // Get user ID from cookies
     const cookieStore = await cookies();
     const userId = cookieStore.get('userId')?.value;
