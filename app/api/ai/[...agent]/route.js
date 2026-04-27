@@ -20,7 +20,8 @@ async function handleProxy(req) {
 
     // Forward headers from original request (excluding host)
     for (const [key, value] of req.headers.entries()) {
-      if (key.toLowerCase() !== 'host' && key.toLowerCase() !== 'content-length') {
+      const lowerKey = key.toLowerCase();
+      if (lowerKey !== 'host' && lowerKey !== 'content-length' && lowerKey !== 'content-type') {
         fetchOptions.headers[key] = value;
       }
     }
@@ -38,8 +39,6 @@ async function handleProxy(req) {
         
         // Note: fetch will automatically set the correct boundary for FormData
         fetchOptions.body = proxyFormData;
-        // Don't manually set Content-Type for FormData, fetch does it
-        delete fetchOptions.headers['content-type'];
       } else {
         const body = await req.json();
         fetchOptions.body = JSON.stringify(body);

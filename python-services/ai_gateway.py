@@ -54,6 +54,19 @@ OUTPUT_DIR = tempfile.mkdtemp()
 def run_async(coro):
     return asyncio.run(coro)
 
+@app.route('/', methods=['GET'])
+def root():
+    return """
+    <html>
+        <head><title>HireAI Backend</title></head>
+        <body style="font-family: sans-serif; padding: 2rem; text-align: center; background-color: #f8fafc;">
+            <h1 style="color: #1e293b;">🚀 HireAI Backend is Active</h1>
+            <p style="color: #475569;">All AI services are running correctly. This is an API server.</p>
+            <p><a href="/health" style="color: #2563eb; text-decoration: none; font-weight: bold;">Check Health Status</a></p>
+        </body>
+    </html>
+    """
+
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({
