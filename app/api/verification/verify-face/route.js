@@ -133,6 +133,7 @@ async function callFlaskFaceService(storedImageUrl, testImageBase64) {
     const flaskUrl = `${gatewayUrl}/verify/face`;
     
     console.log(`📡 Calling AI Gateway: ${flaskUrl}`);
+    const response = await fetch(flaskUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

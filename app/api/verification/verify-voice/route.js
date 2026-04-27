@@ -120,6 +120,7 @@ async function callPythonVoiceVerification(storedAudioUrl, testAudioBase64, orig
     const flaskUrl = `${gatewayUrl}/verify/voice`;
     
     console.log(`📡 Calling AI Gateway: ${flaskUrl}`);
+    const response = await fetch(flaskUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

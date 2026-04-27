@@ -1,0 +1,9 @@
+
+python-services/
+.venv/
+__pycache__/
+*.py
+requirements.txt
+Dockerfile
+node_modules
+.next
