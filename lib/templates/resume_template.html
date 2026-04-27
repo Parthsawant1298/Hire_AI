@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @page { size: A4; margin: 0.5in; }
+        body { 
+            font-family: 'Times New Roman', serif; 
+            line-height: 1.2; 
+            font-size: 10.5pt; 
+            color: #111;
+            margin: 0;
+        }
+        h1 { 
+            text-align: center; 
+            text-transform: uppercase; 
+            margin: 0; 
+            font-size: 18pt;
+            font-weight: bold;
+        }
+        .contact { 
+            text-align: center; 
+            font-size: 9pt; 
+            margin-bottom: 10px; 
+        }
+        .contact a {
+            color: #111;
+            text-decoration: none;
+        }
+        h2 { 
+            text-transform: uppercase; 
+            border-bottom: 1px solid #000; 
+            margin-top: 12px; 
+            margin-bottom: 6px;
+            font-size: 11.5pt;
+            padding-bottom: 2px;
+        }
+        .row { 
+            display: flex; 
+            justify-content: space-between; 
+            font-weight: bold; 
+        }
+        .subrow {
+            display: flex;
+            justify-content: space-between;
+            font-style: italic;
+            font-size: 9.5pt;
+            margin-bottom: 3px;
+        }
+        ul { 
+            margin-top: 2px; 
+            margin-bottom: 8px;
+            padding-left: 20px;
+        }
+        li {
+            margin-bottom: 3px;
+        }
+        .entry {
+            margin-bottom: 10px;
+        }
+        section {
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <h1>{{ full_name }}</h1>
+    <div class="contact">
+        {{ location }} | {{ phone }} | <a href="mailto:{{ email }}">{{ email }}</a>
+        {% if linkedin_url %} | <a href="{{ linkedin_url }}">LinkedIn</a>{% endif %}
+        {% if github_url %} | <a href="{{ github_url }}">GitHub</a>{% endif %}
+    </div>
+    
+    {% if summary %}
+    <section>
+        <h2>Professional Summary</h2>
+        <p>{{ summary }}</p>
+    </section>
+    {% endif %}
+    
+    {% if experience_list %}
+    <section>
+        <h2>Professional Experience</h2>
+        {% for job in experience_list %}
+        <div class="entry">
+            <div class="row">
+                <span>{{ job.company }}</span>
+                <span>{{ job.dates }}</span>
+            </div>
+            <div class="subrow">
+                <span>{{ job.role }}</span>
+                <span>{{ job.location }}</span>
+            </div>
+            <ul>
+                {% for b in job.bullets %}
+                <li>{{ b }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endfor %}
+    </section>
+    {% endif %}
+
+    {% if projects_list %}
+    <section>
+        <h2>Technical Projects</h2>
+        {% for project in projects_list %}
+        <div class="entry">
+            <div class="row">
+                <span>{{ project.title }}{% if project.technologies %} | <i>{{ project.technologies|join(', ') }}</i>{% endif %}</span>
+                <span>{{ project.date }}</span>
+            </div>
+            <ul>
+                {% for detail in project.details %}
+                <li>{{ detail }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endfor %}
+    </section>
+    {% endif %}
+
+    {% if skills %}
+    <section>
+        <h2>Technical Skills</h2>
+        {% if skills.languages %}
+        <p><strong>Languages:</strong> {{ skills.languages|join(', ') }}</p>
+        {% endif %}
+        {% if skills.frameworks %}
+        <p><strong>Frameworks:</strong> {{ skills.frameworks|join(', ') }}</p>
+        {% endif %}
+        {% if skills.tools %}
+        <p><strong>Tools/Platforms:</strong> {{ skills.tools|join(', ') }}</p>
+        {% endif %}
+    </section>
+    {% endif %}
+
+    {% if education %}
+    <section>
+        <h2>Education</h2>
+        {% for edu in education %}
+        <div class="entry">
+            <div class="row">
+                <span>{{ edu.institution }}</span>
+                <span>{{ edu.date }}</span>
+            </div>
+            <div class="subrow">
+                <span>{{ edu.degree }}</span>
+                <span>{{ edu.location }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </section>
+    {% endif %}
+
+    {% if certifications %}
+    <section>
+        <h2>Certifications</h2>
+        <ul>
+            {% for cert in certifications %}
+            <li>{{ cert }}</li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
+
+    {% if awards %}
+    <section>
+        <h2>Awards & Honors</h2>
+        <ul>
+            {% for award in awards %}
+            <li>{{ award }}</li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
+</body>
+</html>

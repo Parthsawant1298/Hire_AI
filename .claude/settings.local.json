@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -X POST http://localhost:8005/chat -H \"Content-Type: application/json\" -d \"{\"\"message\"\":\"\"hello\"\"}\")",
+      "Bash(curl http://localhost:8005)",
+      "Bash(curl -X POST http://localhost:8005/generate-course -H \"Content-Type: application/json\" -d \"{\"\"topic\"\":\"\"Python basics\"\"}\")",
+      "Bash(git checkout main)",
+      "Bash(git stash push -m \"trail branch changes before switching to main\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
