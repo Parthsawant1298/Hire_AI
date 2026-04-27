@@ -50,7 +50,7 @@ export async function POST(request, { params }) {
         // Update job with assistant ID
         await Job.findByIdAndUpdate(jobId, { 
           vapiAssistantId: vapiAssistantId,
-          interviewLink: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/interview/${jobId}?assistant=${vapiAssistantId}`
+          interviewLink: `${process.env.NEXT_PUBLIC_APP_URL || 'https://hire-ai-sepia.vercel.app'}/interview/${jobId}?assistant=${vapiAssistantId}`
         });
       } catch (vapiError) {
         console.error('Failed to create VAPI assistant:', vapiError);
@@ -75,7 +75,7 @@ export async function POST(request, { params }) {
 
         // Send shortlist email with interview invitation
         const interviewLink = vapiAssistantId 
-          ? `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/interview/${jobId}?assistant=${vapiAssistantId}`
+          ? `${process.env.NEXT_PUBLIC_APP_URL || 'https://hire-ai-sepia.vercel.app'}/interview/${jobId}?assistant=${vapiAssistantId}`
           : null;
 
         await sendShortlistEmail({

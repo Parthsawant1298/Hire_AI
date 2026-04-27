@@ -14,7 +14,7 @@ import {
 // CONFIG
 // ============================================================
 
-const API_URL = "http://localhost:8006/search-hackathons";
+const API_URL = "/api/ai/search-hackathons";
 
 const TECH_OPTIONS = [
   "Python", "JavaScript", "TypeScript", "React", "Node.js",

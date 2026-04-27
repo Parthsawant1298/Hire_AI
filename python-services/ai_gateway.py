@@ -210,7 +210,28 @@ def job_match_route():
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
+# --- Hackathon Search Endpoint ---
+
+@app.route('/search-hackathons', methods=['POST'])
+def search_hackathons_route():
+    try:
+        from hackathon_agent import app_graph
+        data = request.json
+        initial_state = {
+            "inputs": data.get('inputs', {}),
+            "query": data.get('query', ''),
+            "github_skills": "",
+            "raw_results": "",
+            "structured_events": []
+        }
+        result = app_graph.invoke(initial_state)
+        return jsonify(result.get("structured_events", []))
+    except Exception as e:
+        logger.error(f"Hackathon search error: {e}")
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8080))
-    logger.info(f"🚀 HireAI Unified Production Gateway starting on port {port}")
+    port = int(os.environ.get('PORT', 7860))
+    logger.info(f"HireAI Unified Production Gateway starting on port {port}")
     app.run(host='0.0.0.0', port=port)
+

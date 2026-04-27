@@ -1,5 +1,4 @@
-# Use a stable Python version for AI libraries
-FROM python:3.10-slim
+FROM python:3.10-slim-bullseye
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -8,6 +7,8 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libgl1-mesa-glx \
     libglib2.0-0 \
+    pkg-config \
+    libcairo2-dev \
     build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -35,12 +36,12 @@ python face_service.py & \n\
 wait -n \n\
 exit $?' > /app/start.sh && chmod +x /app/start.sh
 
-# Expose the unified port
-EXPOSE 8080
+# Expose the unified port (Hugging Face requires 7860)
+EXPOSE 7860
 
 # Health check using the gateway endpoint
 HEALTHCHECK --interval=30s --timeout=30s --start-period=30s --retries=3 \
-  CMD curl -f http://localhost:8080/health || exit 1
+  CMD curl -f http://localhost:7860/health || exit 1
 
 # Start the unified gateway
 CMD ["python", "ai_gateway.py"]

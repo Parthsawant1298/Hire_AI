@@ -59,7 +59,7 @@ export async function POST(request, { params }) {
                      process.env.APP_URL || 
                      (process.env.NODE_ENV === 'production' 
                        ? 'https://your-domain.com' 
-                       : 'http://localhost:3000');
+                       : 'https://hire-ai-sepia.vercel.app');
       
       vapiAssistantId = vapiAssistant.id;
       interviewLink = `${baseUrl}/interview/${jobId}?assistant=${vapiAssistant.id}`;

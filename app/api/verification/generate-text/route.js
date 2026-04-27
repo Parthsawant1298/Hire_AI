@@ -47,7 +47,7 @@ export async function POST(request) {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
-        'HTTP-Referer': 'http://localhost:3000',
+        'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://hire-ai-sepia.vercel.app',
         'X-Title': 'Voice Verification Text Generator'
       },
       body: JSON.stringify({

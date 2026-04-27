@@ -42,10 +42,10 @@ uvicorn==0.27.0
 langchain
 langchain-groq
 langchain-community
+langchain-google-genai
 langgraph
 motor
 pymongo
+onnxruntime
+google-search-results
 python-dotenv
-# InsightFace (install separately with specific commands)
-# Will be installed via pip install insightface --no-deps
-# Then install onnxruntime separately

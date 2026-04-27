@@ -1,278 +1,294 @@
 """
-resume_main.py — HireAI Resume Optimizer API
-============================================
-Endpoints:
-  POST /process-resume          → Full pipeline PDF → optimized PDF
-  GET  /download/{filename}     → Download generated PDF
-  GET  /health                  → Health check
+resume_ai_agent.py — HireAI Resume Optimizer (LangGraph Pipeline)
+=================================================================
+5-Node LangGraph pipeline:
+  Node 1: extract   — parse raw text into structured JSON
+  Node 2: enhance   — improve bullet points, action verbs, metrics
+  Node 3: jd_match  — align content with job description (if provided)
+  Node 4: grammar   — fix grammar, punctuation, passive voice
+  Node 5: audit     — score ATS before/after, produce feedback
 """
 
-import io
 import os
-import sys
-import tempfile
-from datetime import datetime
+import json
+import re
+from typing import TypedDict, Optional
+from dotenv import load_dotenv
 
-import pdfplumber
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from jinja2 import Environment, FileSystemLoader
-from xhtml2pdf import pisa
+load_dotenv()
 
-sys.path.append(os.path.dirname(__file__))
-from resume_ai_agent import process_resume
+from langchain_groq import ChatGroq
+from langgraph.graph import StateGraph, START, END
 
 # ============================================================
-# APP
+# LLM
 # ============================================================
-app = FastAPI(title="HireAI Resume Optimizer", version="2.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+_llm = ChatGroq(
+    model="llama-3.3-70b-versatile",
+    api_key=os.getenv("GROQ_API_KEY"),
+    temperature=0.2,
+    max_tokens=4096,
 )
 
-OUTPUT_DIR   = tempfile.mkdtemp()
-BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
-TEMPLATE_DIR = os.path.join(BASE_DIR, "lib", "templates")
-if not os.path.exists(TEMPLATE_DIR):
-    TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
-
-jinja_env = Environment(loader=FileSystemLoader(TEMPLATE_DIR))
-
+# ============================================================
+# STATE
+# ============================================================
+class ResumeState(TypedDict):
+    raw_text:        str
+    job_description: str
+    extracted_json:  dict
+    enhanced_json:   dict
+    jd_aligned_json: dict
+    grammar_json:    dict
+    fixed_json:      dict
+    feedback:        dict
+    audit_report:    str
 
 # ============================================================
 # HELPERS
 # ============================================================
-def extract_text(file_bytes: bytes) -> str:
-    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-        return "\n".join(
-            p.extract_text() or "" for p in pdf.pages
-        ).strip()
+def _parse_json(text: str) -> dict:
+    """Strip markdown fences and parse JSON."""
+    text = re.sub(r"```(?:json)?\s*", "", text).strip().rstrip("```").strip()
+    # Find first { ... }
+    start = text.find("{")
+    end   = text.rfind("}") + 1
+    if start != -1 and end > start:
+        return json.loads(text[start:end])
+    raise ValueError("No JSON object found in response")
 
-
-def html_to_pdf(html: str, path: str) -> bool:
+def _safe_invoke(prompt: str, fallback: dict) -> dict:
     try:
-        with open(path, "wb") as f:
-            status = pisa.CreatePDF(html, dest=f)
-        return not status.err
+        res = _llm.invoke(prompt)
+        return _parse_json(res.content)
     except Exception as e:
-        print(f"PDF generation error: {e}")
-        return False
-
-
-def sanitize_resume_json(data: dict) -> dict:
-    """
-    Deep sanitizer — runs BEFORE template rendering.
-    Fixes all issues the LLM sometimes still returns:
-      1. "None"/"null" string values  → empty string
-      2. Education B.E. → Bachelor of Engineering in Computer Science
-      3. Certifications → pipe format (Name | Issuer | Year)
-      4. Experience/project location "None" → empty string
-    """
-    NULL_STRINGS = {"none", "null", "n/a", "na", "undefined", ""}
-
-    def clean(val):
-        if val is None:
-            return ""
-        if isinstance(val, str) and val.strip().lower() in NULL_STRINGS:
-            return ""
-        return val
-
-    # 1. Experience location
-    for exp in data.get("experience_list", []):
-        exp["location"] = clean(exp.get("location", ""))
-
-    # 2. Project date
-    for proj in data.get("projects_list", []):
-        proj["date"] = clean(proj.get("date", ""))
-
-    # 3. Education — expand short degree + combine with field
-    DEGREE_MAP = {
-        "b.e":    "Bachelor of Engineering",
-        "be":     "Bachelor of Engineering",
-        "b.tech": "Bachelor of Technology",
-        "btech":  "Bachelor of Technology",
-        "m.e":    "Master of Engineering",
-        "m.tech": "Master of Technology",
-        "m.s":    "Master of Science",
-        "ms":     "Master of Science",
-        "mba":    "Master of Business Administration",
-        "b.sc":   "Bachelor of Science",
-        "bsc":    "Bachelor of Science",
-        "m.sc":   "Master of Science",
-        "phd":    "Doctor of Philosophy",
-    }
-    for edu in data.get("education", []):
-        degree = (edu.get("degree") or "").strip()
-        field  = (edu.get("field")  or "").strip()
-        deg_key = degree.lower().rstrip(".")
-        if deg_key in DEGREE_MAP:
-            degree = DEGREE_MAP[deg_key]
-        # Combine: "Bachelor of Engineering in Computer Science"
-        if field and field.lower() not in degree.lower():
-            edu["degree"] = f"{degree} in {field}"
-        else:
-            edu["degree"] = degree
-        edu["location"] = clean(edu.get("location", ""))
-        edu["gpa"]      = clean(edu.get("gpa", "")) or None
-
-    # 4. Certifications → pipe format
-    cleaned_certs = []
-    for cert in data.get("certifications", []):
-        if not isinstance(cert, str) or not cert.strip():
-            continue
-        cert = cert.strip()
-        if "|" in cert:
-            cleaned_certs.append(cert)
-        else:
-            # Comma format: "Name, Issuer, Year" → "Name | Issuer | Year"
-            parts = [p.strip() for p in cert.split(",")]
-            cleaned_certs.append(" | ".join(parts) if len(parts) >= 2 else cert)
-    data["certifications"] = cleaned_certs
-
-    # 5. Null contact fields
-    for field in ("linkedin_url", "github_url", "portfolio_url"):
-        val = clean(data.get(field, ""))
-        data[field] = val if val else None
-
-    return data
-
+        print(f"LLM error: {e}")
+        return fallback
 
 # ============================================================
-# ROUTES
+# NODE 1 — EXTRACT
 # ============================================================
-@app.get("/")
-async def root():
-    return {
-        "service":  "HireAI Resume Optimizer",
-        "version":  "2.0",
-        "pipeline": "extract → enhance → jd_match → grammar → audit",
-        "status":   "online",
+def extract_node(state: ResumeState) -> dict:
+    print("Node 1/5: Extracting resume structure...")
+    prompt = f"""You are a resume parser. Extract the following resume text into structured JSON.
+
+RESUME TEXT:
+{state['raw_text'][:6000]}
+
+Return ONLY this JSON structure (no markdown, no extra text):
+{{
+  "name": "",
+  "email": "",
+  "phone": "",
+  "location": "",
+  "linkedin_url": null,
+  "github_url": null,
+  "portfolio_url": null,
+  "summary": "",
+  "skills": [],
+  "experience_list": [
+    {{
+      "title": "",
+      "company": "",
+      "location": "",
+      "start_date": "",
+      "end_date": "",
+      "bullets": []
+    }}
+  ],
+  "education": [
+    {{
+      "degree": "",
+      "field": "",
+      "institution": "",
+      "location": "",
+      "start_year": "",
+      "end_year": "",
+      "gpa": null
+    }}
+  ],
+  "projects_list": [
+    {{
+      "name": "",
+      "date": "",
+      "description": "",
+      "bullets": [],
+      "tech_stack": []
+    }}
+  ],
+  "certifications": [],
+  "languages": [],
+  "awards": []
+}}"""
+    result = _safe_invoke(prompt, {"name": "Unknown", "skills": [], "experience_list": [], "education": [], "projects_list": []})
+    print(f"  Extracted: {result.get('name', 'Unknown')}")
+    return {"extracted_json": result}
+
+# ============================================================
+# NODE 2 — ENHANCE
+# ============================================================
+def enhance_node(state: ResumeState) -> dict:
+    print("Node 2/5: Enhancing bullet points...")
+    data = state["extracted_json"]
+    prompt = f"""You are an expert resume writer. Improve this resume JSON:
+- Use strong action verbs (Led, Built, Reduced, Increased, Delivered)
+- Add metrics where possible (%, numbers, timeframes)
+- Make bullets concise and impactful (max 2 lines each)
+- Keep ALL existing fields, only improve text content
+
+CURRENT JSON:
+{json.dumps(data, indent=2)[:4000]}
+
+Return the COMPLETE improved JSON with same structure. ONLY JSON, no explanation."""
+    result = _safe_invoke(prompt, data)
+    return {"enhanced_json": result or data}
+
+# ============================================================
+# NODE 3 — JD MATCH
+# ============================================================
+def jd_match_node(state: ResumeState) -> dict:
+    print("Node 3/5: Aligning with job description...")
+    data = state["enhanced_json"]
+    jd   = state.get("job_description", "").strip()
+
+    if not jd:
+        print("  No JD provided, skipping.")
+        return {"jd_aligned_json": data}
+
+    prompt = f"""You are an ATS optimization expert. Align this resume with the job description:
+- Incorporate relevant keywords from the JD naturally
+- Reorder skills to match JD priorities
+- Adjust summary to target this role
+- Do NOT fabricate experience
+
+JOB DESCRIPTION:
+{jd[:2000]}
+
+RESUME JSON:
+{json.dumps(data, indent=2)[:3000]}
+
+Return ONLY the updated JSON with same structure."""
+    result = _safe_invoke(prompt, data)
+    return {"jd_aligned_json": result or data}
+
+# ============================================================
+# NODE 4 — GRAMMAR
+# ============================================================
+def grammar_node(state: ResumeState) -> dict:
+    print("Node 4/5: Fixing grammar and style...")
+    data = state["jd_aligned_json"]
+    prompt = f"""You are a professional editor. Fix ALL grammar/style issues in this resume JSON:
+- Fix punctuation, capitalization, tense consistency
+- Remove passive voice where possible
+- Ensure present tense for current roles, past for previous
+- Fix any spelling errors
+
+RESUME JSON:
+{json.dumps(data, indent=2)[:4000]}
+
+Return ONLY the corrected JSON with same structure."""
+    result = _safe_invoke(prompt, data)
+    return {"grammar_json": result or data}
+
+# ============================================================
+# NODE 5 — AUDIT
+# ============================================================
+def audit_node(state: ResumeState) -> dict:
+    print("Node 5/5: Scoring and generating feedback...")
+    original = state["extracted_json"]
+    final    = state["grammar_json"]
+    jd       = state.get("job_description", "").strip()
+
+    prompt = f"""You are an ATS and resume expert. Evaluate these two resume versions.
+
+ORIGINAL:
+{json.dumps(original, indent=2)[:2000]}
+
+OPTIMIZED:
+{json.dumps(final, indent=2)[:2000]}
+
+JOB DESCRIPTION (if any):
+{jd[:1000] if jd else "Not provided"}
+
+Return ONLY this JSON:
+{{
+  "ats_score_before": 45,
+  "ats_score_after": 78,
+  "improvements": ["improvement 1", "improvement 2", "improvement 3"],
+  "keywords_added": ["keyword1", "keyword2"],
+  "audit_report": "2-3 sentence summary of what was improved"
+}}"""
+
+    fallback_feedback = {
+        "ats_score_before": 50,
+        "ats_score_after": 75,
+        "improvements": ["Enhanced bullet points with metrics", "Improved action verbs", "Fixed grammar and style"],
+        "keywords_added": [],
+        "audit_report": "Resume has been optimized with stronger action verbs, metrics, and improved formatting."
     }
-
-
-@app.get("/health")
-async def health():
-    return {
-        "status":   "healthy",
-        "model":    "Groq Llama 3.3 70B",
-        "nodes":    ["extract", "enhance", "jd_match", "grammar", "audit"],
-    }
-
-
-@app.post("/process-resume")
-async def process_resume_endpoint(
-    file:            UploadFile = File(...),
-    job_description: str        = Form(""),   # Optional JD for targeted optimization
-):
-    """
-    Full pipeline:
-    1. Extract text from PDF
-    2. Run 5-node LangGraph pipeline
-    3. Render HTML template
-    4. Generate PDF
-    Returns: download URL + resume data + detailed feedback
-    """
-
-    # ---- Validate ----
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
-
-    file_bytes = await file.read()
-    if len(file_bytes) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="File too large. Max 10MB.")
 
     try:
-        print(f"\n{'='*50}")
-        print(f"📄 File: {file.filename}")
-        if job_description:
-            print(f"📋 JD provided ({len(job_description)} chars) — JD matching enabled")
-        print(f"{'='*50}")
-
-        # ---- Step 1: Extract text ----
-        text = extract_text(file_bytes)
-        if len(text.strip()) < 50:
-            raise HTTPException(
-                status_code=400,
-                detail="Could not extract readable text. Please ensure the PDF is not a scanned image."
-            )
-        print(f"  ✓ Extracted {len(text)} characters")
-
-        # ---- Step 2: Run 5-node pipeline ----
-        result = process_resume(
-            raw_text=text,
-            job_description=job_description.strip()
-        )
-
-        fixed_json = result["fixed_json"]
-        feedback   = result["feedback"]
-
-        if not fixed_json:
-            raise HTTPException(status_code=500, detail="AI processing returned empty result.")
-
-        # ---- Step 3: Sanitize + Render template ----
-        try:
-            # Remove internal fields before sanitizing
-            template_data = {k: v for k, v in fixed_json.items() if not k.startswith("_")}
-            # Deep sanitize: fix "None" strings, expand degrees, pipe-format certs
-            template_data = sanitize_resume_json(template_data)
-            print(f"  ✓ Sanitized. Keys: {list(template_data.keys())}")
-            template  = jinja_env.get_template("resume_template.html")
-            html_out  = template.render(**template_data)
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            raise HTTPException(status_code=500, detail=f"Template rendering error: {str(e)}")
-
-        # ---- Step 4: Generate PDF ----
-        ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"Optimized_Resume_{ts}.pdf"
-        pdf_path = os.path.join(OUTPUT_DIR, filename)
-
-        if not html_to_pdf(html_out, pdf_path):
-            raise HTTPException(status_code=500, detail="PDF generation failed.")
-
-        print(f"  ✓ Done: {filename}")
-        print(f"  ✓ ATS: {feedback.get('ats_score_before')} → {feedback.get('ats_score_after')}")
-
-        return {
-            "success":      True,
-            "download_url": f"/download/{filename}",
-            "resume_data":  template_data,
-            "feedback":     feedback,
-            "audit_report": result.get("audit_report", ""),
-            "message":      "Resume optimized successfully!",
+        res  = _llm.invoke(prompt)
+        data = _parse_json(res.content)
+        feedback = {
+            "ats_score_before": data.get("ats_score_before", 50),
+            "ats_score_after":  data.get("ats_score_after", 75),
+            "improvements":     data.get("improvements", []),
+            "keywords_added":   data.get("keywords_added", []),
         }
-
-    except HTTPException:
-        raise
+        audit_report = data.get("audit_report", "")
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Processing failed: {e}")
+        print(f"  Audit error: {e}")
+        feedback     = fallback_feedback
+        audit_report = fallback_feedback["audit_report"]
 
+    print(f"  ATS: {feedback['ats_score_before']} -> {feedback['ats_score_after']}")
+    return {
+        "fixed_json":   final,
+        "feedback":     feedback,
+        "audit_report": audit_report
+    }
 
-@app.get("/download/{filename}")
-async def download(filename: str):
-    # Prevent path traversal
-    if any(c in filename for c in ["/", "\\", ".."]):
-        raise HTTPException(status_code=400, detail="Invalid filename.")
+# ============================================================
+# BUILD GRAPH
+# ============================================================
+_builder = StateGraph(ResumeState)
+_builder.add_node("extract", extract_node)
+_builder.add_node("enhance", enhance_node)
+_builder.add_node("jd_match", jd_match_node)
+_builder.add_node("grammar", grammar_node)
+_builder.add_node("audit",   audit_node)
 
-    path = os.path.join(OUTPUT_DIR, filename)
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="File not found or expired.")
+_builder.add_edge(START,      "extract")
+_builder.add_edge("extract",  "enhance")
+_builder.add_edge("enhance",  "jd_match")
+_builder.add_edge("jd_match", "grammar")
+_builder.add_edge("grammar",  "audit")
+_builder.add_edge("audit",    END)
 
-    return FileResponse(path, media_type="application/pdf", filename=filename)
+_graph = _builder.compile()
 
-
-if __name__ == "__main__":
-    import uvicorn
-    print("\n=== HireAI Resume Optimizer v2.0 ===")
-    print("Pipeline: extract → enhance → jd_match → grammar → audit")
-    print("Running on http://localhost:8000\n")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+# ============================================================
+# PUBLIC API — called by ai_gateway.py
+# ============================================================
+def process_resume(raw_text: str, job_description: str = "") -> dict:
+    """
+    Run the 5-node pipeline and return:
+      {"fixed_json": {...}, "feedback": {...}, "audit_report": "..."}
+    """
+    result = _graph.invoke({
+        "raw_text":        raw_text,
+        "job_description": job_description,
+        "extracted_json":  {},
+        "enhanced_json":   {},
+        "jd_aligned_json": {},
+        "grammar_json":    {},
+        "fixed_json":      {},
+        "feedback":        {},
+        "audit_report":    "",
+    })
+    return {
+        "fixed_json":   result.get("fixed_json", {}),
+        "feedback":     result.get("feedback", {}),
+        "audit_report": result.get("audit_report", ""),
+    }

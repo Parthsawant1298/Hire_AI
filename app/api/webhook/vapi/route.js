@@ -81,7 +81,7 @@ async function processCompletedInterview(call) {
       // Try to find session by assistantId
       if (call.assistantId) {
         try {
-          const sessionResponse = await fetch(`${process.env.APP_URL || 'http://localhost:3000'}/api/interview/session?assistantId=${call.assistantId}`);
+          const sessionResponse = await fetch(`${process.env.APP_URL || 'https://hire-ai-sepia.vercel.app'}/api/interview/session?assistantId=${call.assistantId}`);
           if (sessionResponse.ok) {
             const sessionData = await sessionResponse.json();
             if (sessionData.success) {
